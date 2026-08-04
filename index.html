@@ -666,6 +666,12 @@
       <div class="hint">Property type / construction description &mdash; use the county appraiser link above if needed</div>
     </div>
 
+    <div class="field">
+      <label for="roofCoverType">Roof Cover Type <span class="req">*</span></label>
+      <input type="text" id="roofCoverType" name="roofCoverType" placeholder="e.g. asphalt shingles" required autocomplete="off">
+      <div class="hint">Main roof covering material</div>
+    </div>
+
     <div class="actions">
       <button type="submit" id="generateBtn">Generate Report</button>
       <span class="status" id="status"></span>
@@ -1197,6 +1203,7 @@
       address_line_2: data.addressLine2 || '',
       property_address: fullAddress,
       building_detail: data.buildingDetail || '',
+      roof_cover_type: data.roofCoverType || '',
       cause_of_loss: causeText,
       storm_event: causeText,
       date_of_loss: formatDateLong(data.dateOfLoss),
