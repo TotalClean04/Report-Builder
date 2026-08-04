@@ -1,1 +1,968 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Case Intake — Synergyn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.7/pizzip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pizzip/3.1.7/pizzip-utils.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docxtemplater/3.50.0/docxtemplater.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<style>
+  :root {
+    --navy-900: #0a1628;
+    --navy-800: #0f1f38;
+    --navy-700: #16294a;
+    --navy-600: #1f3a63;
+    --line: #2a3d5c;
+    --ink: #eef2f8;
+    --ink-dim: #94a3bb;
+    --orange: #ff7a2f;
+    --orange-soft: rgba(255, 122, 47, 0.12);
+    --sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Courier New', monospace;
+  }
+ 
+  * { box-sizing: border-box; }
+ 
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(255,122,47,0.10), transparent 60%),
+      radial-gradient(900px 600px at 100% 0%, rgba(31,58,99,0.55), transparent 55%),
+      var(--navy-900);
+    color: var(--ink);
+    font-family: var(--sans);
+    padding: 56px 20px 90px;
+  }
+ 
+  .sheet {
+    max-width: 640px;
+    margin: 0 auto;
+    background: var(--navy-800);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    box-shadow: 0 20px 60px -20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.02);
+  }
+ 
+  .header {
+    padding: 36px 40px 26px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+ 
+  .header::after {
+    content: '';
+    position: absolute;
+    left: 0; bottom: -1px;
+    width: 64px;
+    height: 3px;
+    background: var(--orange);
+    border-radius: 2px;
+  }
+ 
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--orange);
+    margin: 0 0 10px;
+    font-weight: 600;
+  }
+ 
+  h1 {
+    font-size: 27px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #fff;
+  }
+ 
+  .sub {
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-top: 10px;
+    line-height: 1.5;
+  }
+ 
+  form { padding: 10px 40px 40px; }
+ 
+  .field {
+    margin-top: 24px;
+  }
+ 
+  .field:first-child { margin-top: 26px; }
+ 
+  label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--ink-dim);
+    margin-bottom: 8px;
+  }
+ 
+  label .req { color: var(--orange); }
+ 
+  input, select, textarea {
+    width: 100%;
+    padding: 12px 14px;
+    font-family: var(--sans);
+    font-size: 15px;
+    color: var(--ink);
+    background: var(--navy-700);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+ 
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%2394a3bb' stroke-width='1.6' fill='none' fill-rule='evenodd'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+  }
+ 
+  input::placeholder, textarea::placeholder { color: #5a6a86; }
+ 
+  input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: var(--orange);
+    background: var(--navy-600);
+    box-shadow: 0 0 0 3px var(--orange-soft);
+  }
+ 
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+ 
+  @media (max-width: 520px) {
+    .row { grid-template-columns: 1fr; }
+    .sheet { border-radius: 0; border-left: none; border-right: none; }
+    body { padding: 0 0 60px; }
+    .header, form { padding-left: 22px; padding-right: 22px; }
+  }
+ 
+  .hint {
+    font-size: 12px;
+    color: #5a6a86;
+    margin-top: 7px;
+  }
+ 
+  .dropdown {
+    position: relative;
+  }
+ 
+  .dropdown-toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    font-family: var(--sans);
+    font-size: 15px;
+    text-align: left;
+    color: var(--ink);
+    background: var(--navy-700);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+ 
+  .dropdown-toggle:hover { border-color: #3a5075; }
+ 
+  .dropdown.open .dropdown-toggle {
+    border-color: var(--orange);
+    background: var(--navy-600);
+    box-shadow: 0 0 0 3px var(--orange-soft);
+  }
+ 
+  .dropdown.open .dropdown-toggle svg { transform: rotate(180deg); }
+ 
+  .dropdown-toggle svg { transition: transform 0.15s ease; flex-shrink: 0; }
+ 
+  #causeDropdownLabel.placeholder { color: #5a6a86; }
+ 
+  .dropdown-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: var(--navy-700);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px;
+    z-index: 20;
+    max-height: 260px;
+    overflow-y: auto;
+    box-shadow: 0 12px 28px -8px rgba(0,0,0,0.5);
+  }
+ 
+  .dropdown.open .dropdown-panel { display: block; }
+ 
+  .dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+ 
+  .dropdown-item:hover { background: var(--navy-600); }
+ 
+  .dropdown-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--orange);
+    flex-shrink: 0;
+  }
+ 
+  .other-cause-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+ 
+  .other-cause-row input {
+    flex: 1;
+  }
+ 
+  .remove-other-btn {
+    flex-shrink: 0;
+    width: 42px;
+    background: var(--navy-700);
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+ 
+  .remove-other-btn:hover { border-color: var(--orange); color: var(--orange); }
+ 
+  .add-btn {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--orange);
+    background: transparent;
+    border: 1px dashed var(--line);
+    padding: 9px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    width: 100%;
+    box-shadow: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+ 
+  .add-btn:hover { border-color: var(--orange); background: var(--orange-soft); transform: none; }
+ 
+  .template-loader {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    background: var(--navy-700);
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink-dim);
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  }
+ 
+  .template-loader:hover { border-color: var(--orange); color: var(--ink); }
+ 
+  .template-loader.loaded {
+    border-style: solid;
+    border-color: var(--orange);
+    background: var(--orange-soft);
+    color: var(--ink);
+  }
+ 
+  .template-loader svg { flex-shrink: 0; }
+ 
+  .date-picker { position: relative; }
+ 
+  .date-picker-label.placeholder { color: #5a6a86; }
+ 
+  .date-picker.open .date-picker-toggle {
+    border-color: var(--orange);
+    background: var(--navy-600);
+    box-shadow: 0 0 0 3px var(--orange-soft);
+  }
+ 
+  .date-picker.open .date-picker-toggle svg { transform: rotate(180deg); }
+ 
+  .date-picker-panel {
+    display: none;
+    padding: 12px;
+    max-height: none;
+    overflow: visible;
+  }
+ 
+  .date-picker.open .date-picker-panel { display: block; }
+ 
+  .picker-step-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 10px;
+    padding: 0 2px;
+  }
+ 
+  .picker-back {
+    background: var(--navy-600);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    box-shadow: none;
+    padding: 0;
+  }
+ 
+  .picker-back:hover { border-color: var(--orange); transform: none; }
+ 
+  .picker-year-list {
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-right: 4px;
+  }
+ 
+  .picker-option {
+    background: var(--navy-600);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 9px 10px;
+    font-size: 14px;
+    font-family: var(--sans);
+    cursor: pointer;
+    text-align: center;
+    box-shadow: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+ 
+  .picker-option:hover { border-color: var(--orange); background: var(--orange-soft); transform: none; }
+ 
+  .picker-month-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+ 
+  .picker-weekdays {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+    margin-bottom: 4px;
+  }
+ 
+  .picker-weekdays span {
+    text-align: center;
+    font-size: 11px;
+    color: var(--ink-dim);
+    font-family: var(--mono);
+  }
+ 
+  .picker-day-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+  }
+ 
+  .picker-day {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--ink);
+    border-radius: 6px;
+    padding: 8px 0;
+    font-size: 13px;
+    font-family: var(--sans);
+    cursor: pointer;
+    box-shadow: none;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+ 
+  .picker-day:hover { border-color: var(--orange); background: var(--orange-soft); transform: none; }
+ 
+  .picker-disabled {
+    opacity: 0.3;
+    cursor: not-allowed !important;
+  }
+ 
+  .picker-disabled:hover {
+    border-color: var(--line) !important;
+    background: transparent !important;
+  }
+ 
+  .divider {
+    height: 1px;
+    background: var(--line);
+    margin: 32px 0 0;
+  }
+ 
+  .actions {
+    margin-top: 32px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+ 
+  button {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: var(--orange);
+    color: #1a0d03;
+    border: none;
+    padding: 13px 26px;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+    box-shadow: 0 8px 20px -8px rgba(255,122,47,0.55);
+  }
+ 
+  button:hover { background: #ff8a48; transform: translateY(-1px); }
+  button:active { transform: translateY(0); }
+ 
+  .status {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--ink-dim);
+    min-height: 16px;
+  }
+ 
+  .status.ok { color: var(--orange); }
+ 
+  .case-id {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-dim);
+    padding: 14px 40px;
+    border-top: 1px solid var(--line);
+    background: rgba(255,122,47,0.05);
+  }
+</style>
+</head>
+<body>
+ 
+<div class="sheet">
+  <div class="header">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+      <div style="width:28px; height:28px; border-radius:7px; background:linear-gradient(135deg, var(--orange), #ff5c1a); display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-weight:700; font-size:13px; color:#1a0d03;">S</div>
+      <span style="font-family:var(--mono); font-size:12px; letter-spacing:0.08em; color:var(--ink-dim); text-transform:uppercase;">Synergyn</span>
+    </div>
+    <p class="eyebrow">Case Intake — 01 of N</p>
+    <h1>Report Builder</h1>
+  </div>
+ 
+  <form id="intake-form">
+    <div class="field">
+      <label for="clientName">Client Name <span class="req">*</span></label>
+      <input type="text" id="clientName" name="clientName" required autocomplete="off">
+    </div>
+ 
+    <div class="field">
+      <label for="addressLine1">Address Line 1 <span class="req">*</span></label>
+      <input type="text" id="addressLine1" name="addressLine1" placeholder="e.g. 1420 SW 87th Ave" required autocomplete="off">
+      <div class="hint">Street number, name &amp; type</div>
+    </div>
+ 
+    <div class="field">
+      <label for="addressLine2">Address Line 2 <span class="req">*</span></label>
+      <input type="text" id="addressLine2" name="addressLine2" placeholder="e.g. Miami, FL 33174" required autocomplete="off">
+      <div class="hint">City, state &amp; ZIP code</div>
+    </div>
+ 
+    <div class="field">
+      <label>Cause of Loss <span class="req">*</span></label>
+      <div class="hint" style="margin-top:-2px; margin-bottom: 10px;">Click to select — choose more than one if the case is mixed (e.g. Wind + Hail)</div>
+ 
+      <div class="dropdown" id="causeDropdown">
+        <button type="button" class="dropdown-toggle" id="causeDropdownToggle">
+          <span id="causeDropdownLabel">Select cause(s) of loss</span>
+          <svg width="12" height="8" viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="#94a3bb" stroke-width="1.6" fill="none"/></svg>
+        </button>
+        <div class="dropdown-panel" id="causeDropdownPanel">
+          <label class="dropdown-item">
+            <input type="checkbox" name="causeOfLoss" value="wind">
+            <span>Wind</span>
+          </label>
+          <label class="dropdown-item">
+            <input type="checkbox" name="causeOfLoss" value="hurricane">
+            <span>Hurricane</span>
+          </label>
+          <label class="dropdown-item">
+            <input type="checkbox" name="causeOfLoss" value="hail">
+            <span>Hail</span>
+          </label>
+          <label class="dropdown-item">
+            <input type="checkbox" name="causeOfLoss" value="flood">
+            <span>Flood</span>
+          </label>
+          <label class="dropdown-item">
+            <input type="checkbox" name="causeOfLoss" value="structural">
+            <span>Structural</span>
+          </label>
+          <label class="dropdown-item">
+            <input type="checkbox" name="causeOfLoss" value="plumbing">
+            <span>Plumbing</span>
+          </label>
+          <label class="dropdown-item">
+            <input type="checkbox" id="causeOther" name="causeOfLoss" value="other">
+            <span>Other</span>
+          </label>
+        </div>
+      </div>
+ 
+      <div id="otherCausesSection" style="display:none; margin-top:14px;">
+        <label style="margin-bottom:10px;">Describe Other Cause(s)</label>
+        <div id="otherCausesList"></div>
+        <button type="button" id="addOtherCause" class="add-btn">+ Add another</button>
+      </div>
+    </div>
+ 
+    <div class="divider"></div>
+ 
+    <div class="row">
+      <div class="field">
+        <label>Date of Loss <span class="req">*</span></label>
+        <div class="date-picker" id="dateOfLossPicker" data-field="dateOfLoss">
+          <button type="button" class="dropdown-toggle date-picker-toggle">
+            <span class="date-picker-label placeholder">Select date</span>
+            <svg width="12" height="8" viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="#94a3bb" stroke-width="1.6" fill="none"/></svg>
+          </button>
+          <input type="hidden" name="dateOfLoss" required>
+          <div class="dropdown-panel date-picker-panel"></div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Date of Inspection <span class="req">*</span></label>
+        <div class="date-picker" id="dateOfInspectionPicker" data-field="dateOfInspection">
+          <button type="button" class="dropdown-toggle date-picker-toggle">
+            <span class="date-picker-label placeholder">Select date</span>
+            <svg width="12" height="8" viewBox="0 0 12 8" fill="none"><path d="M1 1l5 5 5-5" stroke="#94a3bb" stroke-width="1.6" fill="none"/></svg>
+          </button>
+          <input type="hidden" name="dateOfInspection" required>
+          <div class="dropdown-panel date-picker-panel"></div>
+        </div>
+      </div>
+    </div>
+ 
+    <div class="divider"></div>
+ 
+    <div class="field">
+      <label>Report Template <span class="req">*</span></label>
+      <div class="hint" style="margin-top:-2px; margin-bottom:10px;">Load your tagged template once (Empirical-Wind-TEMPLATE.docx). It stays loaded while this page is open.</div>
+      <label for="templateFile" class="template-loader" id="templateLoader">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="templateLoaderText">Click to load template (.docx)</span>
+      </label>
+      <input type="file" id="templateFile" accept=".docx" style="display:none;">
+    </div>
+ 
+    <div class="actions">
+      <button type="submit" id="generateBtn">Generate Report</button>
+      <span class="status" id="status"></span>
+    </div>
+  </form>
+</div>
+ 
+<script>
+  // Placeholder submit handler — swap this for a real POST to your backend
+  // once the server/API side of the app exists. For now it logs a structured
+  // payload to the console and shows a case reference so you can verify
+  // the field shape matches what downstream stages will expect.
+  // --- Date pickers (year -> month -> day) ---
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const weekdayLabels = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+ 
+  function initDatePicker(rootId) {
+    const root = document.getElementById(rootId);
+    const toggle = root.querySelector('.date-picker-toggle');
+    const label = root.querySelector('.date-picker-label');
+    const panel = root.querySelector('.date-picker-panel');
+    const hiddenInput = root.querySelector('input[type="hidden"]');
+ 
+    const state = { step: 'year', year: null, month: null };
+ 
+    function openPicker() {
+      document.querySelectorAll('.date-picker.open, .dropdown.open').forEach(el => el.classList.remove('open'));
+      state.step = 'year';
+      root.classList.add('open');
+      render();
+    }
+ 
+    function closePicker() { root.classList.remove('open'); }
+ 
+    toggle.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const isOpen = root.classList.contains('open');
+      document.querySelectorAll('.date-picker.open, .dropdown.open').forEach(el => el.classList.remove('open'));
+      if (!isOpen) openPicker();
+    });
+ 
+    document.addEventListener('click', function (e) {
+      const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+      if (!path.includes(root) && !root.contains(e.target)) closePicker();
+    });
+ 
+    function render() {
+      panel.innerHTML = '';
+      if (state.step === 'year') renderYearStep();
+      else if (state.step === 'month') renderMonthStep();
+      else renderDayStep();
+    }
+ 
+    function renderYearStep() {
+      const header = document.createElement('div');
+      header.className = 'picker-step-header';
+      header.textContent = 'Select year';
+      panel.appendChild(header);
+ 
+      const list = document.createElement('div');
+      list.className = 'picker-year-list';
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      for (let y = currentYear; y >= currentYear - 20; y--) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'picker-option';
+        btn.textContent = y;
+        btn.addEventListener('click', function () {
+          state.year = y;
+          state.step = 'month';
+          render();
+        });
+        list.appendChild(btn);
+      }
+      panel.appendChild(list);
+    }
+ 
+    function renderMonthStep() {
+      const header = document.createElement('div');
+      header.className = 'picker-step-header';
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'picker-back';
+      back.innerHTML = '&larr;';
+      back.addEventListener('click', function () { state.step = 'year'; render(); });
+      header.appendChild(back);
+      const title = document.createElement('span');
+      title.textContent = state.year;
+      header.appendChild(title);
+      panel.appendChild(header);
+ 
+      const grid = document.createElement('div');
+      grid.className = 'picker-month-grid';
+      const today = new Date();
+      const isCurrentYear = state.year === today.getFullYear();
+      monthNames.forEach(function (name, idx) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'picker-option';
+        btn.textContent = name.slice(0, 3);
+        if (isCurrentYear && idx > today.getMonth()) {
+          btn.disabled = true;
+          btn.classList.add('picker-disabled');
+        } else {
+          btn.addEventListener('click', function () {
+            state.month = idx;
+            state.step = 'day';
+            render();
+          });
+        }
+        grid.appendChild(btn);
+      });
+      panel.appendChild(grid);
+    }
+ 
+    function renderDayStep() {
+      const header = document.createElement('div');
+      header.className = 'picker-step-header';
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.className = 'picker-back';
+      back.innerHTML = '&larr;';
+      back.addEventListener('click', function () { state.step = 'month'; render(); });
+      header.appendChild(back);
+      const title = document.createElement('span');
+      title.textContent = monthNames[state.month] + ' ' + state.year;
+      header.appendChild(title);
+      panel.appendChild(header);
+ 
+      const weekRow = document.createElement('div');
+      weekRow.className = 'picker-weekdays';
+      weekdayLabels.forEach(function (w) {
+        const cell = document.createElement('span');
+        cell.textContent = w;
+        weekRow.appendChild(cell);
+      });
+      panel.appendChild(weekRow);
+ 
+      const grid = document.createElement('div');
+      grid.className = 'picker-day-grid';
+      const firstWeekday = new Date(state.year, state.month, 1).getDay();
+      const totalDays = new Date(state.year, state.month + 1, 0).getDate();
+      const today = new Date();
+      const isCurrentMonth = state.year === today.getFullYear() && state.month === today.getMonth();
+ 
+      for (let i = 0; i < firstWeekday; i++) {
+        grid.appendChild(document.createElement('span'));
+      }
+      for (let d = 1; d <= totalDays; d++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'picker-day';
+        btn.textContent = d;
+        if (isCurrentMonth && d > today.getDate()) {
+          btn.disabled = true;
+          btn.classList.add('picker-disabled');
+        } else {
+          btn.addEventListener('click', function () {
+            const mm = String(state.month + 1).padStart(2, '0');
+            const dd = String(d).padStart(2, '0');
+            hiddenInput.value = state.year + '-' + mm + '-' + dd;
+            label.textContent = monthNames[state.month] + ' ' + d + ', ' + state.year;
+            label.classList.remove('placeholder');
+            closePicker();
+          });
+        }
+        grid.appendChild(btn);
+      }
+      panel.appendChild(grid);
+    }
+  }
+ 
+  initDatePicker('dateOfLossPicker');
+  initDatePicker('dateOfInspectionPicker');
+ 
+  const form = document.getElementById('intake-form');
+  const status = document.getElementById('status');
+ 
+  // --- Cause of loss dropdown ---
+  const dropdown = document.getElementById('causeDropdown');
+  const dropdownToggle = document.getElementById('causeDropdownToggle');
+  const dropdownLabel = document.getElementById('causeDropdownLabel');
+  const dropdownPanel = document.getElementById('causeDropdownPanel');
+  const causeCheckboxes = dropdownPanel.querySelectorAll('input[type="checkbox"]');
+  const causeOther = document.getElementById('causeOther');
+  const otherSection = document.getElementById('otherCausesSection');
+  const otherList = document.getElementById('otherCausesList');
+  const addOtherBtn = document.getElementById('addOtherCause');
+ 
+  const causeLabels = {
+    wind: 'Wind', hurricane: 'Hurricane', hail: 'Hail',
+    flood: 'Flood', structural: 'Structural', plumbing: 'Plumbing', other: 'Other'
+  };
+ 
+  dropdownToggle.addEventListener('click', function (e) {
+    e.stopPropagation();
+    const isOpen = dropdown.classList.contains('open');
+    document.querySelectorAll('.date-picker.open, .dropdown.open').forEach(el => el.classList.remove('open'));
+    if (!isOpen) dropdown.classList.add('open');
+  });
+ 
+  document.addEventListener('click', function (e) {
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    if (!path.includes(dropdown) && !dropdown.contains(e.target)) dropdown.classList.remove('open');
+  });
+ 
+  function updateDropdownLabel() {
+    const checked = Array.from(causeCheckboxes).filter(cb => cb.checked).map(cb => causeLabels[cb.value]);
+    if (checked.length === 0) {
+      dropdownLabel.textContent = 'Select cause(s) of loss';
+      dropdownLabel.classList.add('placeholder');
+    } else {
+      dropdownLabel.textContent = checked.join(', ');
+      dropdownLabel.classList.remove('placeholder');
+    }
+  }
+ 
+  causeCheckboxes.forEach(cb => cb.addEventListener('change', updateDropdownLabel));
+ 
+  // --- Repeatable "Other" cause rows ---
+  function addOtherRow(value) {
+    const row = document.createElement('div');
+    row.className = 'other-cause-row';
+    row.innerHTML =
+      '<input type="text" name="otherCause" placeholder="Describe the cause of loss" value="' +
+      (value ? value.replace(/"/g, '&quot;') : '') + '">' +
+      '<button type="button" class="remove-other-btn" title="Remove">&times;</button>';
+ 
+    row.querySelector('.remove-other-btn').addEventListener('click', function () {
+      row.remove();
+      if (otherList.children.length === 0) addOtherRow('');
+    });
+ 
+    otherList.appendChild(row);
+    row.querySelector('input').focus();
+  }
+ 
+  addOtherBtn.addEventListener('click', function () { addOtherRow(''); });
+ 
+  causeOther.addEventListener('change', function () {
+    if (causeOther.checked) {
+      otherSection.style.display = 'block';
+      if (otherList.children.length === 0) addOtherRow('');
+    } else {
+      otherSection.style.display = 'none';
+      otherList.innerHTML = '';
+    }
+  });
+ 
+  // --- Template loading (kept in memory while page is open) ---
+  const templateInput = document.getElementById('templateFile');
+  const templateLoader = document.getElementById('templateLoader');
+  const templateLoaderText = document.getElementById('templateLoaderText');
+  let templateArrayBuffer = null;
+ 
+  templateInput.addEventListener('change', function () {
+    const file = templateInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function () {
+      templateArrayBuffer = reader.result;
+      templateLoader.classList.add('loaded');
+      templateLoaderText.textContent = 'Loaded: ' + file.name;
+    };
+    reader.readAsArrayBuffer(file);
+  });
+ 
+  // --- Helpers to format survey data into the report's expected text ---
+  const causeLabelMap = {
+    wind: 'Wind', hurricane: 'Hurricane', hail: 'Hail',
+    flood: 'Flood', structural: 'Structural', plumbing: 'Plumbing'
+  };
+ 
+  function formatDateLong(iso) {
+    // iso = "YYYY-MM-DD" -> "Month D, YYYY"
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-').map(Number);
+    return monthNames[m - 1] + ' ' + d + ', ' + y;
+  }
+  function formatDateShort(iso) {
+    if (!iso) return '';
+    const [y, m, d] = iso.split('-');
+    return m + '/' + d + '/' + y;
+  }
+ 
+  function buildCauseText(causes, otherCauses) {
+    const named = causes.filter(c => c !== 'other').map(c => causeLabelMap[c] || c);
+    const all = named.concat(otherCauses);
+    return all.join(' + ');
+  }
+ 
+  // --- Submit: fill the template and download the report ---
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+ 
+    const formData = new FormData(form);
+    const causes = formData.getAll('causeOfLoss');
+ 
+    if (causes.length === 0) {
+      status.textContent = 'Select at least one cause of loss';
+      status.classList.remove('ok');
+      return;
+    }
+ 
+    const otherCauses = formData.getAll('otherCause').map(v => v.trim()).filter(Boolean);
+    if (causes.includes('other') && otherCauses.length === 0) {
+      status.textContent = 'Describe at least one "Other" cause of loss';
+      status.classList.remove('ok');
+      return;
+    }
+ 
+    const data = Object.fromEntries(formData.entries());
+ 
+    if (!data.dateOfLoss || !data.dateOfInspection) {
+      status.textContent = 'Select both a date of loss and date of inspection';
+      status.classList.remove('ok');
+      return;
+    }
+ 
+    if (!templateArrayBuffer) {
+      status.textContent = 'Load your report template first (button above)';
+      status.classList.remove('ok');
+      return;
+    }
+ 
+    // Build the merge context — maps survey fields to the template's {{tags}}
+    const causeText = buildCauseText(causes, otherCauses);
+    const fullAddress = [data.addressLine1, data.addressLine2].filter(Boolean).join(', ');
+ 
+    const context = {
+      client_name: data.clientName || '',
+      address_line_1: data.addressLine1 || '',
+      address_line_2: data.addressLine2 || '',
+      property_address: fullAddress,
+      cause_of_loss: causeText,
+      storm_event: causeText,
+      date_of_loss: formatDateLong(data.dateOfLoss),
+      date_of_inspection: formatDateShort(data.dateOfInspection),
+      date_of_inspection_long: formatDateLong(data.dateOfInspection)
+    };
+ 
+    try {
+      const zip = new PizZip(templateArrayBuffer);
+      const doc = new window.docxtemplater(zip, {
+        delimiters: { start: '{{', end: '}}' },
+        paragraphLoop: true,
+        linebreaks: true,
+        nullGetter: function () { return ''; } // leave unmapped tags blank rather than error
+      });
+ 
+      doc.render(context);
+ 
+      const out = doc.getZip().generate({
+        type: 'blob',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+      });
+ 
+      // Filename: ClientName_CauseOrigin_Report.docx
+      const safeName = (data.clientName || 'Report').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+      const fileName = safeName + '_Cause_Origin_Report.docx';
+ 
+      saveAs(out, fileName); // FileSaver -> browser download (goes to Downloads)
+ 
+      status.textContent = 'Report generated \u2014 downloading ' + fileName;
+      status.classList.add('ok');
+    } catch (err) {
+      console.error('Template fill error:', err);
+      status.textContent = 'Error filling template: ' + (err.message || err);
+      status.classList.remove('ok');
+    }
+  });
+</script>
+ 
+</body>
+</html>
