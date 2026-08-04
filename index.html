@@ -672,6 +672,12 @@
       <div class="hint">Main roof covering material</div>
     </div>
 
+    <div class="field">
+      <label for="homeownerNarrative">The homeowners began to notice&hellip;</label>
+      <textarea id="homeownerNarrative" name="homeownerNarrative" rows="3" placeholder="e.g. After Hurricane Milton, the homeowner noticed water staining in the master bathroom and made temporary roof repairs."></textarea>
+      <div class="hint">Optional &mdash; what the homeowner reported. <strong>If left blank, this line is omitted from the report entirely.</strong></div>
+    </div>
+
     <div class="actions">
       <button type="submit" id="generateBtn">Generate Report</button>
       <span class="status" id="status"></span>
@@ -1204,6 +1210,8 @@
       property_address: fullAddress,
       building_detail: data.buildingDetail || '',
       roof_cover_type: data.roofCoverType || '',
+      homeowner_narrative: (data.homeownerNarrative || '').trim(),
+      homeowner_narrative_present: !!(data.homeownerNarrative || '').trim(),
       cause_of_loss: causeText,
       storm_event: causeText,
       date_of_loss: formatDateLong(data.dateOfLoss),
