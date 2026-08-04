@@ -575,20 +575,6 @@
       <div class="hint">City, state &amp; ZIP code</div>
     </div>
 
-    <div id="appraiserCard" class="appraiser-card" style="display:none;">
-      <div class="appraiser-card-head">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg>
-        <span id="appraiserCardTitle">County Property Appraiser</span>
-      </div>
-      <div class="appraiser-card-body" id="appraiserCardBody"></div>
-    </div>
-
-    <div class="field">
-      <label for="buildingDetail">Building Detail <span class="req">*</span></label>
-      <textarea id="buildingDetail" name="buildingDetail" rows="2" placeholder="e.g. single-family home with a mono slab foundation and CMU exterior walls" required></textarea>
-      <div class="hint">Property type / construction description &mdash; look this up on the county appraiser site above if needed</div>
-    </div>
-
     <div class="field">
       <label>Cause of Loss <span class="req">*</span></label>
       <div class="hint" style="margin-top:-2px; margin-bottom: 10px;">Click to select — choose more than one if the case is mixed (e.g. Wind + Hail)</div>
@@ -662,6 +648,22 @@
           <div class="dropdown-panel date-picker-panel"></div>
         </div>
       </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div id="appraiserCard" class="appraiser-card" style="display:none;">
+      <div class="appraiser-card-head">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 21v-6h6v6"/></svg>
+        <span id="appraiserCardTitle">County Property Appraiser</span>
+      </div>
+      <div class="appraiser-card-body" id="appraiserCardBody"></div>
+    </div>
+
+    <div class="field">
+      <label for="buildingDetail">Building Detail <span class="req">*</span></label>
+      <textarea id="buildingDetail" name="buildingDetail" rows="2" placeholder="e.g. single-family home with a mono slab foundation and CMU exterior walls" required></textarea>
+      <div class="hint">Property type / construction description &mdash; use the county appraiser link above if needed</div>
     </div>
 
     <div class="actions">
