@@ -498,6 +498,18 @@
 
   <form id="intake-form">
     <div class="field">
+      <label>Report Template <span class="req">*</span></label>
+      <div class="hint" style="margin-top:-2px; margin-bottom:10px;">Step 1 &mdash; load the template that matches this case's cause of loss. It stays loaded while this page is open.</div>
+      <label for="templateFile" class="template-loader" id="templateLoader">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="templateLoaderText">Click to load template (.docx)</span>
+      </label>
+      <input type="file" id="templateFile" accept=".docx" style="display:none;">
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="field">
       <label for="clientName">Client Name <span class="req">*</span></label>
       <input type="text" id="clientName" name="clientName" required autocomplete="off">
     </div>
@@ -587,18 +599,6 @@
           <div class="dropdown-panel date-picker-panel"></div>
         </div>
       </div>
-    </div>
-
-    <div class="divider"></div>
-
-    <div class="field">
-      <label>Report Template <span class="req">*</span></label>
-      <div class="hint" style="margin-top:-2px; margin-bottom:10px;">Load your tagged template once (Empirical-Wind-TEMPLATE.docx). It stays loaded while this page is open.</div>
-      <label for="templateFile" class="template-loader" id="templateLoader">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span id="templateLoaderText">Click to load template (.docx)</span>
-      </label>
-      <input type="file" id="templateFile" accept=".docx" style="display:none;">
     </div>
 
     <div class="actions">
@@ -975,5 +975,4 @@
   });
 </script>
 
-</body>
-</html>
+</body
