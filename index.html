@@ -310,6 +310,74 @@
 
   .template-loader svg { flex-shrink: 0; }
 
+  /* --- Aerial imagery upload slots --- */
+  .aerial-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  @media (max-width: 520px) { .aerial-grid { grid-template-columns: 1fr 1fr; } }
+
+  .aerial-slot {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    background: var(--navy-700);
+    border: 1px dashed var(--line);
+    border-radius: 8px;
+    cursor: pointer;
+    color: var(--ink-dim);
+    overflow: hidden;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .aerial-slot:hover { border-color: var(--orange); color: var(--ink); }
+
+  .aerial-slot .aerial-num {
+    font-family: var(--mono);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--orange);
+  }
+  .aerial-slot .aerial-label { font-size: 11px; }
+
+  .aerial-slot.filled { border-style: solid; border-color: var(--orange); }
+  .aerial-slot.filled .aerial-num,
+  .aerial-slot.filled .aerial-label { display: none; }
+
+  .aerial-slot .aerial-preview {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+  }
+  .aerial-slot.filled .aerial-preview { display: block; }
+
+  .aerial-slot .aerial-clear {
+    position: absolute;
+    top: 4px; right: 4px;
+    width: 20px; height: 20px;
+    border-radius: 5px;
+    background: rgba(10,22,40,0.8);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    padding: 0;
+    box-shadow: none;
+  }
+  .aerial-slot.filled .aerial-clear { display: flex; }
+
   /* --- County appraiser card --- */
   .appraiser-card {
     margin-top: 18px;
@@ -676,6 +744,61 @@
       <label for="homeownerNarrative">The homeowners began to notice&hellip;</label>
       <textarea id="homeownerNarrative" name="homeownerNarrative" rows="3" placeholder="e.g. leaking in the kitchen and water staining in the master bathroom."></textarea>
       <div class="hint">Optional &mdash; the report auto-prepends &ldquo;The homeowners began to notice&rdquo; before your text. <strong>If left blank, this line is omitted entirely.</strong></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="field">
+      <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:14px;">Property Details <span style="color:var(--ink-dim); font-weight:400;">(from county appraiser)</span></label>
+      <div class="row">
+        <div>
+          <label for="frontFacing">Front Facing</label>
+          <input type="text" id="frontFacing" name="frontFacing" placeholder="e.g. North" autocomplete="off">
+        </div>
+        <div>
+          <label for="roofStyle">Roof Style</label>
+          <input type="text" id="roofStyle" name="roofStyle" placeholder="e.g. Gable" autocomplete="off">
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px;">
+        <div>
+          <label for="yearBuilt">Year Built</label>
+          <input type="text" id="yearBuilt" name="yearBuilt" placeholder="e.g. 1998" autocomplete="off">
+        </div>
+        <div>
+          <label for="bedsBaths">Beds / Baths</label>
+          <input type="text" id="bedsBaths" name="bedsBaths" placeholder="e.g. 3/2" autocomplete="off">
+        </div>
+      </div>
+      <div class="row" style="margin-top:16px;">
+        <div>
+          <label for="floors">Floors</label>
+          <input type="text" id="floors" name="floors" placeholder="e.g. 1" autocomplete="off">
+        </div>
+        <div>
+          <label for="livingArea">Living Area</label>
+          <input type="text" id="livingArea" name="livingArea" placeholder="e.g. 1,850 sqft" autocomplete="off">
+        </div>
+      </div>
+      <div class="field" style="margin-top:16px;">
+        <label for="lotArea">Lot Area</label>
+        <input type="text" id="lotArea" name="lotArea" placeholder="e.g. 7,200 sqft" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="field">
+      <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Aerial Imagery <span style="color:var(--ink-dim); font-weight:400;">(6 slots)</span></label>
+      <div class="hint" style="margin-bottom:14px;">Upload an image for each slot &mdash; they fill Aerial Imagery 1&ndash;6 in the report. Empty slots are left blank.</div>
+      <div class="aerial-grid">
+        <label class="aerial-slot" data-slot="1"><input type="file" accept="image/*" data-aerial="1" style="display:none;"><span class="aerial-num">1</span><span class="aerial-label">Add image</span></label>
+        <label class="aerial-slot" data-slot="2"><input type="file" accept="image/*" data-aerial="2" style="display:none;"><span class="aerial-num">2</span><span class="aerial-label">Add image</span></label>
+        <label class="aerial-slot" data-slot="3"><input type="file" accept="image/*" data-aerial="3" style="display:none;"><span class="aerial-num">3</span><span class="aerial-label">Add image</span></label>
+        <label class="aerial-slot" data-slot="4"><input type="file" accept="image/*" data-aerial="4" style="display:none;"><span class="aerial-num">4</span><span class="aerial-label">Add image</span></label>
+        <label class="aerial-slot" data-slot="5"><input type="file" accept="image/*" data-aerial="5" style="display:none;"><span class="aerial-num">5</span><span class="aerial-label">Add image</span></label>
+        <label class="aerial-slot" data-slot="6"><input type="file" accept="image/*" data-aerial="6" style="display:none;"><span class="aerial-num">6</span><span class="aerial-label">Add image</span></label>
+      </div>
     </div>
 
     <div class="actions">
@@ -1123,6 +1246,140 @@
     }
   });
 
+  // --- Image injection into docx (aerial imagery slots) ---
+// injectImages: takes a filled .docx (ArrayBuffer/binary), a map of marker->{data, w, h},
+// injects images at @@MARKER@@ text runs (or blanks the marker if no image).
+// Pure PizZip — works in browser and node. `PizZipCtor` lets node pass its PizZip.
+function injectImagesCore(PizZipCtor, docxData, images) {
+  const zip = new PizZipCtor(docxData);
+
+  const DOC = 'word/document.xml';
+  const RELS = 'word/_rels/document.xml.rels';
+  const CT = '[Content_Types].xml';
+
+  let docXml = zip.file(DOC).asText();
+  let relsXml = zip.file(RELS).asText();
+  let ctXml = zip.file(CT).asText();
+
+  // ensure content types for png/jpeg
+  function ensureCT(ext, type) {
+    if (!new RegExp('Extension="' + ext + '"').test(ctXml)) {
+      ctXml = ctXml.replace('</Types>', '<Default Extension="' + ext + '" ContentType="' + type + '"/></Types>');
+    }
+  }
+  ensureCT('png', 'image/png');
+  ensureCT('jpeg', 'image/jpeg');
+  ensureCT('jpg', 'image/jpeg');
+
+  // next rId
+  let maxRid = 0;
+  relsXml.replace(/Id="rId(\d+)"/g, function (_, n) { maxRid = Math.max(maxRid, +n); return _; });
+  let ridN = maxRid;
+
+  // next media index
+  let mediaN = 0;
+  zip.file(/word\/media\/image(\d+)\./).forEach(function (f) {
+    const m = f.name.match(/image(\d+)\./); if (m) mediaN = Math.max(mediaN, +m[1]);
+  });
+
+  let drawingId = 1000;
+
+  Object.keys(images).forEach(function (marker) {
+    const info = images[marker];
+    const token = '@@' + marker + '@@';
+    const escToken = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // match a <w:t ...>...token...</w:t> (all occurrences)
+    const tReGlobal = new RegExp('<w:t[^>]*>[^<]*' + escToken + '[^<]*</w:t>', 'g');
+
+    if (!info || !info.data) {
+      // no image -> blank every occurrence of the marker
+      docXml = docXml.replace(tReGlobal, '<w:t xml:space="preserve"></w:t>');
+      return;
+    }
+
+    // embed the image ONCE, reference it at every occurrence
+    ridN += 1; mediaN += 1;
+    const ext = info.ext || 'png';
+    const mediaName = 'word/media/image' + mediaN + '.' + ext;
+    zip.file(mediaName, info.data, { binary: true });
+    const rId = 'rId' + ridN;
+    relsXml = relsXml.replace('</Relationships>',
+      '<Relationship Id="' + rId + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image' + mediaN + '.' + ext + '"/></Relationships>');
+
+    // EMU sizing (max width ~2.6in, keep aspect)
+    const EMU = 914400;
+    const maxW = Math.round(2.6 * EMU);
+    let w = info.w || 800, h = info.h || 600;
+    const cx = maxW;
+    const cy = Math.round(maxW * (h / w));
+
+    function makeDrawing() {
+      drawingId += 1;
+      return '<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+        '<wp:extent cx="' + cx + '" cy="' + cy + '"/>' +
+        '<wp:docPr id="' + drawingId + '" name="Aerial ' + marker + ' ' + drawingId + '"/>' +
+        '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+        '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+        '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+        '<pic:nvPicPr><pic:cNvPr id="' + drawingId + '" name="Aerial ' + marker + ' ' + drawingId + '"/><pic:cNvPicPr/></pic:nvPicPr>' +
+        '<pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+        '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
+        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
+        '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
+    }
+
+    // replace every <w:t>..token..</w:t> with a fresh drawing (unique docPr id each)
+    docXml = docXml.replace(tReGlobal, function () { return makeDrawing(); });
+  });
+
+  zip.file(DOC, docXml);
+  zip.file(RELS, relsXml);
+  zip.file(CT, ctXml);
+  return zip;
+}
+
+  // --- Aerial imagery slots (store data + dimensions on upload) ---
+  const aerialImages = {}; // { 1: {data:Uint8Array, w, h, ext}, ... }
+
+  document.querySelectorAll('input[data-aerial]').forEach(function (input) {
+    const slot = input.closest('.aerial-slot');
+    input.addEventListener('change', function () {
+      const file = input.files[0];
+      const n = input.getAttribute('data-aerial');
+      if (!file) return;
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const reader = new FileReader();
+      reader.onload = function () {
+        const buf = new Uint8Array(reader.result);
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = function () {
+          aerialImages[n] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+          // preview
+          let prev = slot.querySelector('.aerial-preview');
+          if (!prev) { prev = document.createElement('img'); prev.className = 'aerial-preview'; slot.appendChild(prev); }
+          prev.src = url;
+          let clr = slot.querySelector('.aerial-clear');
+          if (!clr) {
+            clr = document.createElement('button');
+            clr.type = 'button'; clr.className = 'aerial-clear'; clr.innerHTML = '&times;';
+            clr.addEventListener('click', function (e) {
+              e.preventDefault(); e.stopPropagation();
+              delete aerialImages[n];
+              input.value = '';
+              slot.classList.remove('filled');
+            });
+            slot.appendChild(clr);
+          }
+          slot.classList.add('filled');
+        };
+        img.src = url;
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  });
+
+
   // --- Template loading (kept in memory while page is open) ---
   const templateInput = document.getElementById('templateFile');
   const templateLoader = document.getElementById('templateLoader');
@@ -1216,7 +1473,14 @@
       storm_event: causeText,
       date_of_loss: formatDateLong(data.dateOfLoss),
       date_of_inspection: formatDateShort(data.dateOfInspection),
-      date_of_inspection_long: formatDateLong(data.dateOfInspection)
+      date_of_inspection_long: formatDateLong(data.dateOfInspection),
+      front_facing: data.frontFacing || '',
+      roof_style: data.roofStyle || '',
+      year_built: data.yearBuilt || '',
+      beds_baths: data.bedsBaths || '',
+      floors: data.floors || '',
+      living_area: data.livingArea || '',
+      lot_area: data.lotArea || ''
     };
 
     try {
@@ -1230,7 +1494,16 @@
 
       doc.render(context);
 
-      const out = doc.getZip().generate({
+      // Get filled docx as binary, then inject aerial images into the 6 slots
+      const filledBinary = doc.getZip().generate({ type: 'uint8array' });
+
+      const imageMap = {};
+      for (let n = 1; n <= 6; n++) {
+        imageMap['IMG_AERIAL_' + n] = aerialImages[n] || null;
+      }
+      const injectedZip = injectImagesCore(PizZip, filledBinary, imageMap);
+
+      const out = injectedZip.generate({
         type: 'blob',
         mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       });
