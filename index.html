@@ -378,6 +378,20 @@
   }
   .aerial-slot.filled .aerial-clear { display: flex; }
 
+  .aerial-cell { display: flex; flex-direction: column; gap: 6px; }
+  .aerial-date {
+    width: 100%;
+    padding: 8px 10px;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    color: var(--ink);
+    background: var(--navy-700);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+  }
+  .aerial-date:focus { outline: none; border-color: var(--orange); background: var(--navy-600); }
+  .aerial-date::placeholder { color: #5a6a86; }
+
   /* --- County appraiser card --- */
   .appraiser-card {
     margin-top: 18px;
@@ -790,14 +804,21 @@
 
     <div class="field">
       <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Aerial Imagery <span style="color:var(--ink-dim); font-weight:400;">(6 slots)</span></label>
-      <div class="hint" style="margin-bottom:14px;">Upload an image for each slot &mdash; they fill Aerial Imagery 1&ndash;6 in the report. Empty slots are left blank.</div>
+      <div class="hint" style="margin-bottom:14px;">Upload an image and enter its date for each slot &mdash; they fill Aerial Imagery 1&ndash;6 in the report. Empty slots are left blank.</div>
+
+      <div class="field" style="margin-bottom:16px;">
+        <label for="imageSource">Image Source</label>
+        <input type="text" id="imageSource" name="imageSource" placeholder="e.g. Google Earth Pro" autocomplete="off">
+        <div class="hint">Fills &ldquo;Obtained From:&rdquo; for every close-up image</div>
+      </div>
+
       <div class="aerial-grid">
-        <label class="aerial-slot" data-slot="1"><input type="file" accept="image/*" data-aerial="1" style="display:none;"><span class="aerial-num">1</span><span class="aerial-label">Add image</span></label>
-        <label class="aerial-slot" data-slot="2"><input type="file" accept="image/*" data-aerial="2" style="display:none;"><span class="aerial-num">2</span><span class="aerial-label">Add image</span></label>
-        <label class="aerial-slot" data-slot="3"><input type="file" accept="image/*" data-aerial="3" style="display:none;"><span class="aerial-num">3</span><span class="aerial-label">Add image</span></label>
-        <label class="aerial-slot" data-slot="4"><input type="file" accept="image/*" data-aerial="4" style="display:none;"><span class="aerial-num">4</span><span class="aerial-label">Add image</span></label>
-        <label class="aerial-slot" data-slot="5"><input type="file" accept="image/*" data-aerial="5" style="display:none;"><span class="aerial-num">5</span><span class="aerial-label">Add image</span></label>
-        <label class="aerial-slot" data-slot="6"><input type="file" accept="image/*" data-aerial="6" style="display:none;"><span class="aerial-num">6</span><span class="aerial-label">Add image</span></label>
+        <div class="aerial-cell"><label class="aerial-slot" data-slot="1"><input type="file" accept="image/*" data-aerial="1" style="display:none;"><span class="aerial-num">1</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="1" name="aerialDate1" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
+        <div class="aerial-cell"><label class="aerial-slot" data-slot="2"><input type="file" accept="image/*" data-aerial="2" style="display:none;"><span class="aerial-num">2</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="2" name="aerialDate2" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
+        <div class="aerial-cell"><label class="aerial-slot" data-slot="3"><input type="file" accept="image/*" data-aerial="3" style="display:none;"><span class="aerial-num">3</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="3" name="aerialDate3" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
+        <div class="aerial-cell"><label class="aerial-slot" data-slot="4"><input type="file" accept="image/*" data-aerial="4" style="display:none;"><span class="aerial-num">4</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="4" name="aerialDate4" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
+        <div class="aerial-cell"><label class="aerial-slot" data-slot="5"><input type="file" accept="image/*" data-aerial="5" style="display:none;"><span class="aerial-num">5</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="5" name="aerialDate5" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
+        <div class="aerial-cell"><label class="aerial-slot" data-slot="6"><input type="file" accept="image/*" data-aerial="6" style="display:none;"><span class="aerial-num">6</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="6" name="aerialDate6" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
       </div>
     </div>
 
@@ -1554,7 +1575,14 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       beds_baths: data.bedsBaths || '',
       floors: data.floors || '',
       living_area: data.livingArea || '',
-      lot_area: data.lotArea || ''
+      lot_area: data.lotArea || '',
+      image_source: data.imageSource || '',
+      aerial_date_1: data.aerialDate1 || '',
+      aerial_date_2: data.aerialDate2 || '',
+      aerial_date_3: data.aerialDate3 || '',
+      aerial_date_4: data.aerialDate4 || '',
+      aerial_date_5: data.aerialDate5 || '',
+      aerial_date_6: data.aerialDate6 || ''
     };
 
     try {
