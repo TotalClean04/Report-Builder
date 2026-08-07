@@ -1959,18 +1959,18 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   });
 
   // ---- Editable permit list ----
-  // permitRows: [{ number, date, type, description, relevant }]
+  // permitRows: [{ number, date, type, description, suggested, include }]
   const permitRows = [];
 
   function renderPermitList() {
     permitListEl.innerHTML = '';
     permitRows.forEach(function (row, idx) {
       const el = document.createElement('div');
-      el.className = 'permit-row' + (row.relevant ? ' suggested' : '');
+      el.className = 'permit-row' + (row.suggested ? ' suggested' : '');
       el.innerHTML =
         '<div class="permit-row-head">' +
-          '<span class="permit-relevance ' + (row.relevant ? '' : 'off') + '">' + (row.relevant ? 'Suggested' : 'Not flagged') + '</span>' +
-          '<label class="permit-include"><input type="checkbox" ' + (row.relevant ? 'checked' : '') + ' data-k="relevant"> include as relevant</label>' +
+          (row.suggested ? '<span class="permit-relevance">Suggested</span>' : '') +
+          '<label class="permit-include"><input type="checkbox" ' + (row.include ? 'checked' : '') + ' data-k="include"> include</label>' +
           '<button type="button" class="permit-remove">Remove</button>' +
         '</div>' +
         '<div class="permit-fields">' +
@@ -1982,11 +1982,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       // wire inputs
       el.querySelectorAll('[data-k]').forEach(function (inp) {
         const k = inp.getAttribute('data-k');
-        inp.addEventListener('input', function () {
-          if (k === 'relevant') { row.relevant = inp.checked; renderPermitList(); }
-          else row[k] = inp.value;
-        });
-        if (k === 'relevant') inp.addEventListener('change', function () { row.relevant = inp.checked; renderPermitList(); });
+        if (k === 'include') {
+          inp.addEventListener('change', function () { row.include = inp.checked; });
+        } else {
+          inp.addEventListener('input', function () { row[k] = inp.value; });
+        }
       });
       el.querySelector('.permit-remove').addEventListener('click', function () {
         const i = permitRows.indexOf(row);
@@ -2001,7 +2001,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   function escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
   addPermitBtn.addEventListener('click', function () {
-    permitRows.push({ number: '', date: '', type: '', description: '', relevant: true });
+    permitRows.push({ number: '', date: '', type: '', description: '', suggested: false, include: true });
     renderPermitList();
   });
 
@@ -2029,7 +2029,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
             date: p.date || '',
             type: p.type || '',
             description: p.description || '',
-            relevant: !!p.relevant
+            suggested: true,           // came from the AI as a keyword match
+            include: !!p.strong        // strong matches (reroof/roof/shingle/truss) start ticked
           });
           added++;
         });
@@ -2223,9 +2224,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       }
     });
 
-    // Permit list -> context.permits (only rows marked relevant/include)
+    // Permit list -> context.permits (only rows with "include" ticked)
     context.permits = permitRows
-      .filter(function (r) { return r.relevant; })
+      .filter(function (r) { return r.include; })
       .map(function (r) {
         return {
           number: r.number || '',
