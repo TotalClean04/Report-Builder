@@ -336,6 +336,13 @@
   }
   .aerial-slot:hover { border-color: var(--orange); color: var(--ink); }
 
+  .aerial-slot.dragover {
+    border-color: var(--orange);
+    border-style: solid;
+    background: var(--orange-soft);
+    color: var(--ink);
+  }
+
   .aerial-slot .aerial-num {
     font-family: var(--mono);
     font-size: 15px;
@@ -379,6 +386,40 @@
   .aerial-slot.filled .aerial-clear { display: flex; }
 
   .aerial-cell { display: flex; flex-direction: column; gap: 6px; }
+
+  .closeup-section {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+    background: rgba(255,255,255,0.015);
+  }
+  .closeup-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .closeup-section-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--orange);
+    font-weight: 600;
+  }
+  .closeup-remove {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-dim);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    box-shadow: none;
+  }
+  .closeup-remove:hover { border-color: var(--orange); color: var(--orange); transform: none; }
+  .closeup-source { margin-bottom: 14px; }
   .aerial-date {
     width: 100%;
     padding: 8px 10px;
@@ -803,23 +844,10 @@
     <div class="divider"></div>
 
     <div class="field">
-      <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Aerial Imagery <span style="color:var(--ink-dim); font-weight:400;">(6 slots)</span></label>
-      <div class="hint" style="margin-bottom:14px;">Upload an image and enter its date for each slot &mdash; they fill Aerial Imagery 1&ndash;6 in the report. Empty slots are left blank.</div>
-
-      <div class="field" style="margin-bottom:16px;">
-        <label for="imageSource">Image Source</label>
-        <input type="text" id="imageSource" name="imageSource" placeholder="e.g. Google Earth Pro" autocomplete="off">
-        <div class="hint">Fills &ldquo;Obtained From:&rdquo; for every close-up image</div>
-      </div>
-
-      <div class="aerial-grid">
-        <div class="aerial-cell"><label class="aerial-slot" data-slot="1"><input type="file" accept="image/*" data-aerial="1" style="display:none;"><span class="aerial-num">1</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="1" name="aerialDate1" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
-        <div class="aerial-cell"><label class="aerial-slot" data-slot="2"><input type="file" accept="image/*" data-aerial="2" style="display:none;"><span class="aerial-num">2</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="2" name="aerialDate2" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
-        <div class="aerial-cell"><label class="aerial-slot" data-slot="3"><input type="file" accept="image/*" data-aerial="3" style="display:none;"><span class="aerial-num">3</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="3" name="aerialDate3" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
-        <div class="aerial-cell"><label class="aerial-slot" data-slot="4"><input type="file" accept="image/*" data-aerial="4" style="display:none;"><span class="aerial-num">4</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="4" name="aerialDate4" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
-        <div class="aerial-cell"><label class="aerial-slot" data-slot="5"><input type="file" accept="image/*" data-aerial="5" style="display:none;"><span class="aerial-num">5</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="5" name="aerialDate5" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
-        <div class="aerial-cell"><label class="aerial-slot" data-slot="6"><input type="file" accept="image/*" data-aerial="6" style="display:none;"><span class="aerial-num">6</span><span class="aerial-label">Add image</span></label><input type="text" class="aerial-date" data-date="6" name="aerialDate6" placeholder="Date (MM/DD/YYYY)" autocomplete="off"></div>
-      </div>
+      <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Close-up Aerial Imagery</label>
+      <div class="hint" style="margin-bottom:14px;">Each section is a 6-image close-up grid with its own source. Upload an image and enter its date for each slot. Empty slots are left blank.</div>
+      <div id="closeupSections"></div>
+      <button type="button" id="addCloseup" class="add-btn" style="margin-top:4px;">+ Add another close-up imagery</button>
     </div>
 
     <div class="actions">
@@ -1341,6 +1369,26 @@
     }
   });
 
+  // --- Repeatable close-up sections: clone the sentinel-wrapped block ---
+  function cloneCloseupSections(docXml, extraCount) {
+    const START = '<!--CLOSEUP_START-->';
+    const END = '<!--CLOSEUP_END-->';
+    const s = docXml.indexOf(START);
+    const e = docXml.indexOf(END);
+    if (s === -1 || e === -1) return docXml;
+    const base = docXml.slice(s + START.length, e);
+    const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+    let assembled = base;
+    for (let k = 2; k <= 1 + extraCount; k++) {
+      const clone = base
+        .replace(/@@IMG_AERIAL_(\d)@@/g, '@@IMG_AERIAL_' + k + '_$1@@')
+        .replace(/\{\{aerial_date_(\d)\}\}/g, '{{aerial_date_' + k + '_$1}}')
+        .replace(/\{\{image_source\}\}/g, '{{image_source_' + k + '}}');
+      assembled += pageBreak + clone;
+    }
+    return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
+  }
+
   // --- Image injection into docx (aerial imagery slots) ---
 // injectImages: takes a filled .docx (ArrayBuffer/binary), a map of marker->{data, w, h},
 // injects images at @@MARKER@@ text runs (or blanks the marker if no image).
@@ -1433,44 +1481,137 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   return zip;
 }
 
-  // --- Aerial imagery slots (store data + dimensions on upload) ---
-  const aerialImages = {}; // { 1: {data:Uint8Array, w, h, ext}, ... }
+  // --- Close-up aerial imagery sections (repeatable) ---
+  // aerialImages keyed by "sec_slot", e.g. "1_3" (section 1, slot 3)
+  const aerialImages = {};
+  const closeupWrap = document.getElementById('closeupSections');
+  const addCloseupBtn = document.getElementById('addCloseup');
+  let sectionCount = 0;
 
-  document.querySelectorAll('input[data-aerial]').forEach(function (input) {
-    const slot = input.closest('.aerial-slot');
-    input.addEventListener('change', function () {
-      const file = input.files[0];
-      const n = input.getAttribute('data-aerial');
-      if (!file) return;
-      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-      const reader = new FileReader();
-      reader.onload = function () {
-        const buf = new Uint8Array(reader.result);
-        const url = URL.createObjectURL(file);
-        const img = new Image();
-        img.onload = function () {
-          aerialImages[n] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
-          // preview
-          let prev = slot.querySelector('.aerial-preview');
-          if (!prev) { prev = document.createElement('img'); prev.className = 'aerial-preview'; slot.appendChild(prev); }
-          prev.src = url;
-          let clr = slot.querySelector('.aerial-clear');
-          if (!clr) {
-            clr = document.createElement('button');
-            clr.type = 'button'; clr.className = 'aerial-clear'; clr.innerHTML = '&times;';
-            clr.addEventListener('click', function (e) {
-              e.preventDefault(); e.stopPropagation();
-              delete aerialImages[n];
-              input.value = '';
-              slot.classList.remove('filled');
-            });
-            slot.appendChild(clr);
-          }
-          slot.classList.add('filled');
-        };
-        img.src = url;
+  function parseDateFromFilename(filename) {
+    const name = filename.replace(/\.[^.]+$/, '');
+    const m = name.match(/(?:^|[_\-\s])(\d{2})[_\-]?(\d{2})(\d{2})(?:$|[_\-\s])/);
+    if (!m) return '';
+    const mm = m[2], dd = m[3];
+    const month = parseInt(mm, 10), day = parseInt(dd, 10);
+    if (month < 1 || month > 12 || day < 1 || day > 31) return '';
+    return mm + '/' + dd + '/20' + m[1];
+  }
+
+  function sectionMarkup(sec) {
+    let cells = '';
+    for (let s = 1; s <= 6; s++) {
+      cells +=
+        '<div class="aerial-cell">' +
+          '<label class="aerial-slot" data-sec="' + sec + '" data-slot="' + s + '">' +
+            '<input type="file" accept="image/*" data-sec="' + sec + '" data-aerial="' + s + '" style="display:none;">' +
+            '<span class="aerial-num">' + s + '</span><span class="aerial-label">Add image</span>' +
+          '</label>' +
+          '<input type="text" class="aerial-date" data-sec="' + sec + '" data-date="' + s + '" placeholder="Date (MM/DD/YYYY)" autocomplete="off">' +
+        '</div>';
+    }
+    const removeBtn = sec === 1 ? '' :
+      '<button type="button" class="closeup-remove" data-remove="' + sec + '">Remove</button>';
+    return '<div class="closeup-section" data-section="' + sec + '">' +
+        '<div class="closeup-section-head">' +
+          '<span class="closeup-section-title">Close-up Imagery ' + sec + '</span>' + removeBtn +
+        '</div>' +
+        '<div class="closeup-source">' +
+          '<label>Image Source</label>' +
+          '<input type="text" class="aerial-source" data-sec="' + sec + '" placeholder="e.g. Google Earth Pro" autocomplete="off">' +
+          '<div class="hint">Fills &ldquo;Obtained From:&rdquo; for this section&rsquo;s images</div>' +
+        '</div>' +
+        '<div class="aerial-grid">' + cells + '</div>' +
+      '</div>';
+  }
+
+  function processAerialFile(slot, input, sec, n, file) {
+    if (!file || !/^image\//.test(file.type)) return;
+    const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+
+    const dateInput = slot.parentElement.querySelector('.aerial-date[data-date="' + n + '"]');
+    if (dateInput && !dateInput.value.trim()) {
+      const parsed = parseDateFromFilename(file.name);
+      if (parsed) dateInput.value = parsed;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function () {
+      const buf = new Uint8Array(reader.result);
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        aerialImages[sec + '_' + n] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+        let prev = slot.querySelector('.aerial-preview');
+        if (!prev) { prev = document.createElement('img'); prev.className = 'aerial-preview'; slot.appendChild(prev); }
+        prev.src = url;
+        let clr = slot.querySelector('.aerial-clear');
+        if (!clr) {
+          clr = document.createElement('button');
+          clr.type = 'button'; clr.className = 'aerial-clear'; clr.innerHTML = '&times;';
+          clr.addEventListener('click', function (e) {
+            e.preventDefault(); e.stopPropagation();
+            delete aerialImages[sec + '_' + n];
+            input.value = '';
+            slot.classList.remove('filled');
+          });
+          slot.appendChild(clr);
+        }
+        slot.classList.add('filled');
       };
-      reader.readAsArrayBuffer(file);
+      img.src = url;
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function wireSection(sectionEl) {
+    const sec = sectionEl.getAttribute('data-section');
+    sectionEl.querySelectorAll('input[data-aerial]').forEach(function (input) {
+      const slot = input.closest('.aerial-slot');
+      const n = input.getAttribute('data-aerial');
+      input.addEventListener('change', function () {
+        processAerialFile(slot, input, sec, n, input.files[0]);
+      });
+      ['dragenter', 'dragover'].forEach(function (evt) {
+        slot.addEventListener(evt, function (e) { e.preventDefault(); e.stopPropagation(); slot.classList.add('dragover'); });
+      });
+      ['dragleave', 'dragend'].forEach(function (evt) {
+        slot.addEventListener(evt, function (e) { e.preventDefault(); e.stopPropagation(); slot.classList.remove('dragover'); });
+      });
+      slot.addEventListener('drop', function (e) {
+        e.preventDefault(); e.stopPropagation(); slot.classList.remove('dragover');
+        const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (file) processAerialFile(slot, input, sec, n, file);
+      });
+    });
+    const rm = sectionEl.querySelector('.closeup-remove');
+    if (rm) {
+      rm.addEventListener('click', function () {
+        // clear this section's stored images, then remove the DOM node
+        Object.keys(aerialImages).forEach(function (k) {
+          if (k.indexOf(sec + '_') === 0) delete aerialImages[k];
+        });
+        sectionEl.remove();
+      });
+    }
+  }
+
+  function addSection() {
+    sectionCount += 1;
+    const temp = document.createElement('div');
+    temp.innerHTML = sectionMarkup(sectionCount);
+    const el = temp.firstChild;
+    closeupWrap.appendChild(el);
+    wireSection(el);
+  }
+
+  addCloseupBtn.addEventListener('click', addSection);
+  addSection(); // section 1 on load
+
+  // Prevent the browser from opening an image dropped outside a slot
+  ['dragover', 'drop'].forEach(function (evt) {
+    window.addEventListener(evt, function (e) {
+      if (!e.target.closest || !e.target.closest('.aerial-slot')) e.preventDefault();
     });
   });
 
@@ -1575,34 +1716,61 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       beds_baths: data.bedsBaths || '',
       floors: data.floors || '',
       living_area: data.livingArea || '',
-      lot_area: data.lotArea || '',
-      image_source: data.imageSource || '',
-      aerial_date_1: data.aerialDate1 || '',
-      aerial_date_2: data.aerialDate2 || '',
-      aerial_date_3: data.aerialDate3 || '',
-      aerial_date_4: data.aerialDate4 || '',
-      aerial_date_5: data.aerialDate5 || '',
-      aerial_date_6: data.aerialDate6 || ''
+      lot_area: data.lotArea || ''
     };
+
+    // --- Gather all close-up sections from the DOM (source + dates per section) ---
+    const sectionEls = Array.from(document.querySelectorAll('.closeup-section'));
+    const sectionSecs = sectionEls.map(function (el) { return el.getAttribute('data-section'); });
+
+    sectionEls.forEach(function (el, idx) {
+      const sec = el.getAttribute('data-section');
+      const position = idx + 1; // 1 = base section, 2+ = clones
+      const source = (el.querySelector('.aerial-source') || {}).value || '';
+      if (position === 1) {
+        context.image_source = source;
+      } else {
+        context['image_source_' + position] = source;
+      }
+      for (let s = 1; s <= 6; s++) {
+        const di = el.querySelector('.aerial-date[data-date="' + s + '"]');
+        const dv = di ? (di.value || '') : '';
+        if (position === 1) context['aerial_date_' + s] = dv;
+        else context['aerial_date_' + position + '_' + s] = dv;
+      }
+    });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
+
+      // Clone the template's close-up section block for each EXTRA section
+      const extraCount = Math.max(0, sectionEls.length - 1);
+      let docXml = zip.file('word/document.xml').asText();
+      docXml = cloneCloseupSections(docXml, extraCount);
+      zip.file('word/document.xml', docXml);
+
       const doc = new window.docxtemplater(zip, {
         delimiters: { start: '{{', end: '}}' },
         paragraphLoop: true,
         linebreaks: true,
-        nullGetter: function () { return ''; } // leave unmapped tags blank rather than error
+        nullGetter: function () { return ''; }
       });
 
       doc.render(context);
 
-      // Get filled docx as binary, then inject aerial images into the 6 slots
+      // Get filled docx as binary, then inject aerial images (all sections)
       const filledBinary = doc.getZip().generate({ type: 'uint8array' });
 
       const imageMap = {};
-      for (let n = 1; n <= 6; n++) {
-        imageMap['IMG_AERIAL_' + n] = aerialImages[n] || null;
-      }
+      sectionEls.forEach(function (el, idx) {
+        const sec = el.getAttribute('data-section');
+        const position = idx + 1;
+        for (let s = 1; s <= 6; s++) {
+          const stored = aerialImages[sec + '_' + s] || null;
+          const marker = position === 1 ? ('IMG_AERIAL_' + s) : ('IMG_AERIAL_' + position + '_' + s);
+          imageMap[marker] = stored;
+        }
+      });
       const injectedZip = injectImagesCore(PizZip, filledBinary, imageMap);
 
       const out = injectedZip.generate({
