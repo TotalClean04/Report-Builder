@@ -1840,7 +1840,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         dates.push(di ? (di.value || '') : '');
       }
 
-      // find the newest-dated filled slot (for "Latest Imagery")
+      // find the newest-dated filled slot (candidate for "Latest Imagery")
       let newestSlot = lastFilledSlot, newestTime = -Infinity;
       for (let s = 1; s <= 6; s++) {
         if (!filled[s - 1]) continue;
@@ -1848,6 +1848,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         const t = d ? d.getTime() : -Infinity;
         if (t >= newestTime) { newestTime = t; newestSlot = s; }
       }
+      // "Latest Imagery" applies to the newest image only when it's post-Date-of-Loss.
+      // If dates can't be compared (no dates entered, or no DOL), fall back to the last-filled slot.
+      const haveDates = newestTime !== -Infinity;
+      const latestApplies = (!haveDates || !dolDate) ? true : (newestTime >= dolDate.getTime());
 
       // write dates + labels into context
       for (let s = 1; s <= 6; s++) {
@@ -1856,7 +1860,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         context[dateKey] = dates[s - 1] || '';
         let label = '';
         if (filled[s - 1]) {
-          if (s === newestSlot) {
+          if (s === newestSlot && latestApplies) {
             label = 'Latest Imagery';
           } else {
             const d = parseMDY(dates[s - 1]);
