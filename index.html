@@ -1369,8 +1369,12 @@
     }
   });
 
-  // --- Repeatable close-up sections: clone the sentinel-wrapped block ---
-  function cloneCloseupSections(docXml, extraCount) {
+  // --- Repeatable close-up sections: clone + reflow empty slots ---
+  // buildCloseups(docXml, sections)
+  //   sections: [{ position, filled:[b,b,b,b,b,b] }, ...] in display order
+  // Clones the sentinel-wrapped close-up block per section (position>1 renamed),
+  // reflows each block's 9-row table to drop empty slots, removes sentinels.
+  function buildCloseups(docXml, sections) {
     const START = '<!--CLOSEUP_START-->';
     const END = '<!--CLOSEUP_END-->';
     const s = docXml.indexOf(START);
@@ -1378,15 +1382,99 @@
     if (s === -1 || e === -1) return docXml;
     const base = docXml.slice(s + START.length, e);
     const pageBreak = '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
-    let assembled = base;
-    for (let k = 2; k <= 1 + extraCount; k++) {
-      const clone = base
-        .replace(/@@IMG_AERIAL_(\d)@@/g, '@@IMG_AERIAL_' + k + '_$1@@')
-        .replace(/\{\{aerial_date_(\d)\}\}/g, '{{aerial_date_' + k + '_$1}}')
-        .replace(/\{\{image_source\}\}/g, '{{image_source_' + k + '}}');
-      assembled += pageBreak + clone;
-    }
+
+    const blocks = sections.map(function (sec, idx) {
+      const pos = sec.position;
+      let blk = base;
+      if (pos > 1) {
+        blk = blk
+          .replace(/@@IMG_AERIAL_(\d)@@/g, '@@IMG_AERIAL_' + pos + '_$1@@')
+          .replace(/\{\{aerial_date_(\d)\}\}/g, '{{aerial_date_' + pos + '_$1}}')
+          .replace(/\{\{aerial_label_(\d)\}\}/g, '{{aerial_label_' + pos + '_$1}}')
+          .replace(/\{\{image_source\}\}/g, '{{image_source_' + pos + '}}');
+      }
+      blk = reflowBlock(blk, sec.filled);
+      return blk;
+    });
+
+    const assembled = blocks.map(function (b, i) { return i === 0 ? b : pageBreak + b; }).join('');
     return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
+  }
+
+  // reflowBlock: given a close-up block and filled[6], drop empty slots.
+  // The table has 3 pair-groups, each = 3 consecutive <w:tr> (image / date / label),
+  // left cell = slot (2i+1), right cell = slot (2i+2).
+  function reflowBlock(block, filled) {
+    const tblStart = block.indexOf('<w:tbl>');
+    const tblEnd = block.indexOf('</w:tbl>') + '</w:tbl>'.length;
+    if (tblStart === -1) return block;
+    const tbl = block.slice(tblStart, tblEnd);
+
+    // split rows
+    const rowRe = /<w:tr\b[\s\S]*?<\/w:tr>/g;
+    const rows = tbl.match(rowRe) || [];
+    // header/other rows before the 9 image rows? Our table is exactly the 9 rows.
+    // group them in 3s
+    const out = [];
+    for (let g = 0; g < 3; g++) {
+      const leftSlot = g * 2;      // 0-based index into filled: slots 0,2,4
+      const rightSlot = g * 2 + 1; // slots 1,3,5
+      const grpRows = rows.slice(g * 3, g * 3 + 3);
+      if (grpRows.length < 3) { grpRows.forEach(function (r) { out.push(r); }); continue; }
+      const leftFilled = !!filled[leftSlot];
+      const rightFilled = !!filled[rightSlot];
+
+      if (!leftFilled && !rightFilled) {
+        // drop entire group (3 rows)
+        continue;
+      } else if (leftFilled && rightFilled) {
+        grpRows.forEach(function (r) { out.push(r); });
+      } else {
+        // exactly one filled -> keep that cell, span it across 2 cols, drop the other cell
+        const keepLeft = leftFilled;
+        grpRows.forEach(function (r) {
+          const cells = r.match(/<w:tc>[\s\S]*?<\/w:tc>/g) || [];
+          if (cells.length < 2) { out.push(r); return; }
+          const keepCell = keepLeft ? cells[0] : cells[1];
+          const merged = addGridSpan2(keepCell);
+          // rebuild row with only the kept (merged) cell
+          const rowOpen = r.slice(0, r.indexOf('>') + 1);
+          // preserve trPr if present
+          const trPrMatch = r.match(/<w:trPr>[\s\S]*?<\/w:trPr>/);
+          const trPr = trPrMatch ? trPrMatch[0] : '';
+          out.push(rowOpen + trPr + merged + '</w:tr>');
+        });
+      }
+    }
+
+    const newTbl = tbl.slice(0, tbl.indexOf('>', tbl.indexOf('<w:tbl')) + 1) +
+      // keep everything up to first row (tblPr, tblGrid), then our rows
+      tbl.slice(tbl.indexOf('>', tbl.indexOf('<w:tbl')) + 1, firstRowIndex(tbl)) +
+      out.join('') + '</w:tbl>';
+
+    return block.slice(0, tblStart) + newTbl + block.slice(tblEnd);
+  }
+
+  function firstRowIndex(tbl) {
+    const i = tbl.indexOf('<w:tr');
+    return i === -1 ? tbl.length : i;
+  }
+
+  function addGridSpan2(cell) {
+    // ensure tcPr has <w:gridSpan w:val="2"/> in the correct schema position (after tcW)
+    if (/<w:gridSpan /.test(cell)) {
+      return cell.replace(/<w:gridSpan w:val="\d+"\/>/, '<w:gridSpan w:val="2"/>');
+    }
+    // insert right after the <w:tcW .../> element if present
+    if (/<w:tcW\b[^>]*\/>/.test(cell)) {
+      return cell.replace(/(<w:tcW\b[^>]*\/>)/, '$1<w:gridSpan w:val="2"/>');
+    }
+    // else after <w:tcPr> open (no tcW present)
+    if (/<w:tcPr>/.test(cell)) {
+      return cell.replace('<w:tcPr>', '<w:tcPr><w:gridSpan w:val="2"/>');
+    }
+    // no tcPr -> add one right after <w:tc>
+    return cell.replace('<w:tc>', '<w:tc><w:tcPr><w:gridSpan w:val="2"/></w:tcPr></w:tc>'.replace('</w:tc>',''));
   }
 
   // --- Image injection into docx (aerial imagery slots) ---
@@ -1658,6 +1746,14 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     return all.join(' + ');
   }
 
+  // Parse MM/DD/YYYY -> Date (for comparing image dates to date of loss). Returns null if unparseable.
+  function parseMDY(str) {
+    if (!str) return null;
+    const m = String(str).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (!m) return null;
+    return new Date(+m[3], +m[2] - 1, +m[1]);
+  }
+
   // --- Submit: fill the template and download the report ---
   form.addEventListener('submit', function (e) {
     e.preventDefault();
@@ -1719,34 +1815,73 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       lot_area: data.lotArea || ''
     };
 
-    // --- Gather all close-up sections from the DOM (source + dates per section) ---
+    // --- Gather all close-up sections: source, dates, filled slots, per-image labels ---
     const sectionEls = Array.from(document.querySelectorAll('.closeup-section'));
-    const sectionSecs = sectionEls.map(function (el) { return el.getAttribute('data-section'); });
+    const dolDate = parseMDY(formatDateShort(data.dateOfLoss)); // date of loss for comparisons
+
+    const sectionsMeta = []; // for buildCloseups: {position, filled:[...]}
+    let latestImageData = null;   // last-filled image of section 1 -> IMG_LATEST
 
     sectionEls.forEach(function (el, idx) {
       const sec = el.getAttribute('data-section');
-      const position = idx + 1; // 1 = base section, 2+ = clones
+      const position = idx + 1; // 1 = base, 2+ = clones
       const source = (el.querySelector('.aerial-source') || {}).value || '';
-      if (position === 1) {
-        context.image_source = source;
-      } else {
-        context['image_source_' + position] = source;
-      }
+      if (position === 1) context.image_source = source;
+      else context['image_source_' + position] = source;
+
+      // collect this section's filled slots + dates
+      const filled = [];
+      let lastFilledSlot = 0;
+      const dates = [];
       for (let s = 1; s <= 6; s++) {
+        const has = !!aerialImages[sec + '_' + s];
+        filled.push(has);
+        if (has) lastFilledSlot = s;
         const di = el.querySelector('.aerial-date[data-date="' + s + '"]');
-        const dv = di ? (di.value || '') : '';
-        if (position === 1) context['aerial_date_' + s] = dv;
-        else context['aerial_date_' + position + '_' + s] = dv;
+        dates.push(di ? (di.value || '') : '');
+      }
+
+      // find the newest-dated filled slot (for "Latest Imagery")
+      let newestSlot = lastFilledSlot, newestTime = -Infinity;
+      for (let s = 1; s <= 6; s++) {
+        if (!filled[s - 1]) continue;
+        const d = parseMDY(dates[s - 1]);
+        const t = d ? d.getTime() : -Infinity;
+        if (t >= newestTime) { newestTime = t; newestSlot = s; }
+      }
+
+      // write dates + labels into context
+      for (let s = 1; s <= 6; s++) {
+        const dateKey = position === 1 ? ('aerial_date_' + s) : ('aerial_date_' + position + '_' + s);
+        const labelKey = position === 1 ? ('aerial_label_' + s) : ('aerial_label_' + position + '_' + s);
+        context[dateKey] = dates[s - 1] || '';
+        let label = '';
+        if (filled[s - 1]) {
+          if (s === newestSlot) {
+            label = 'Latest Imagery';
+          } else {
+            const d = parseMDY(dates[s - 1]);
+            if (d && dolDate) label = (d.getTime() < dolDate.getTime()) ? 'Pre-Date of Loss' : 'Post-Date of Loss';
+            else label = 'Pre-Date of Loss';
+          }
+        }
+        context[labelKey] = label;
+      }
+
+      sectionsMeta.push({ position: position, filled: filled });
+
+      // section 1's last-filled image feeds the ~23 technical-background spots (IMG_LATEST)
+      if (position === 1 && lastFilledSlot > 0) {
+        latestImageData = aerialImages[sec + '_' + lastFilledSlot];
       }
     });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
 
-      // Clone the template's close-up section block for each EXTRA section
-      const extraCount = Math.max(0, sectionEls.length - 1);
+      // Clone + reflow the close-up section blocks based on how many images each has
       let docXml = zip.file('word/document.xml').asText();
-      docXml = cloneCloseupSections(docXml, extraCount);
+      docXml = buildCloseups(docXml, sectionsMeta);
       zip.file('word/document.xml', docXml);
 
       const doc = new window.docxtemplater(zip, {
@@ -1771,6 +1906,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           imageMap[marker] = stored;
         }
       });
+      // ~23 technical-background spots get section 1's last-filled image
+      imageMap['IMG_LATEST'] = latestImageData || null;
       const injectedZip = injectImagesCore(PizZip, filledBinary, imageMap);
 
       const out = injectedZip.generate({
