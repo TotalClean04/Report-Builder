@@ -502,6 +502,14 @@
   }
   .file-row input:focus { outline: none; border-color: var(--orange); }
 
+  .roof-recognized {
+    margin-top: 8px; padding: 8px 12px; border-radius: 7px; font-size: 13px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .roof-recognized.ok { background: var(--orange-soft); color: var(--ink); border: 1px solid var(--orange); }
+  .roof-recognized.warn { background: rgba(148,163,187,0.10); color: var(--ink-dim); border: 1px solid var(--line); }
+  .roof-recognized strong { color: var(--orange); text-transform: capitalize; }
+
 
   .closeup-section {
     border: 1px solid var(--line);
@@ -908,7 +916,8 @@
     <div class="field">
       <label for="roofCoverType">Roof Cover Type <span class="req">*</span></label>
       <input type="text" id="roofCoverType" name="roofCoverType" placeholder="e.g. asphalt shingles" required autocomplete="off">
-      <div class="hint">Main roof covering material</div>
+      <div class="hint">Main roof covering material &mdash; the technical background is picked from this</div>
+      <div id="roofRecognized" class="roof-recognized" style="display:none;"></div>
     </div>
 
     <div class="field">
@@ -1537,6 +1546,59 @@
     }
   });
 
+  // --- Technical background: keep chosen roof section, drop others + title + subtitle, fill dates ---
+  function buildTechBackground(docXml, roof, dol) {
+    const types = ['metal', 'tile', 'shingle', 'flat'];
+    function removeRegion(xml, open, close) {
+      const s = xml.indexOf(open), e = xml.indexOf(close);
+      if (s === -1 || e === -1) return xml;
+      return xml.slice(0, s) + xml.slice(e + close.length);
+    }
+    function stripMarker(xml, marker) { return xml.split(marker).join(''); }
+
+    docXml = removeRegion(docXml, '<!--TBTITLE-->', '<!--/TBTITLE-->');
+    types.forEach(function (t) {
+      if (t === roof) {
+        docXml = removeRegion(docXml, '<!--TBHEAD:' + t + '-->', '<!--/TBHEAD:' + t + '-->');
+        docXml = stripMarker(docXml, '<!--TBSEC:' + t + '-->');
+        docXml = stripMarker(docXml, '<!--/TBSEC:' + t + '-->');
+      } else {
+        docXml = removeRegion(docXml, '<!--TBSEC:' + t + '-->', '<!--/TBSEC:' + t + '-->');
+      }
+    });
+
+    if (dol) {
+      const pre = fmtMDY(addDays(dol, -1)), mid = fmtMDY(dol), post = fmtMDY(addDays(dol, 1));
+      function setCellDate(cell, val) {
+        return cell.replace(/(<w:t[^>]*>)([\s\S]*?)(<\/w:t>)/g, function (m, open, text, close) {
+          if (/\[[^\]]*DOL[^\]]*\]/i.test(text)) text = text.replace(/\[[^\]]*DOL[^\]]*\]/i, val);
+          else if (/\d{1,2}\/\d{1,2}\/\d{4}/.test(text)) text = text.replace(/\d{1,2}\/\d{1,2}\/\d{4}/, val);
+          return open + text + close;
+        });
+      }
+      docXml = docXml.replace(/<w:tr\b[\s\S]*?<\/w:tr>/g, function (tr) {
+        if (tr.indexOf('(D.O.L.)') === -1 && !/\[[^\]]*DOL[^\]]*\]/i.test(tr)) return tr;
+        let idx = 0;
+        return tr.replace(/<w:tc>[\s\S]*?<\/w:tc>/g, function (cell) {
+          idx++;
+          if (idx === 1) return setCellDate(cell, pre);
+          if (idx === 2) return setCellDate(cell, mid);
+          if (idx === 3) return setCellDate(cell, post);
+          return cell;
+        });
+      });
+      docXml = docXml.split('[Pre-DOL date]').join(pre);
+      docXml = docXml.split('[Earliest Post-DOL date]').join(post);
+      docXml = docXml.split('[Post-DOL date]').join(post);
+      docXml = docXml.replace(/\d{1,2}\/\d{1,2}\/\d{4}(\s*\(D\.?O\.?L\.?\))/g, mid + '$1');
+    }
+    return docXml;
+  }
+  function addDays(d, n) { const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
+  function fmtMDY(d) {
+    return String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0') + '/' + d.getFullYear();
+  }
+
   // --- Permit page images: expand Appendix B region per permit page ---
   function buildPermitImages(docXml, pageCount) {
     const START = '<!--PERMITIMG_START-->';
@@ -1894,6 +1956,34 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   //   - each page -> an image inserted into Appendix B (in order)
   //   - AI reads pages -> permit list rows (editable, add/remove)
   // ============================================================
+
+  // ---- Roof type recognition (drives the technical background selection) ----
+  function detectRoofType(text) {
+    const s = (text || '').toLowerCase();
+    if (/(shingle|shingles|asphalt|fiberglass|architectural|3-tab|three-tab|laminate|lapped)/.test(s)) return 'shingle';
+    if (/(tile|tiles|clay|concrete tile|barrel|s-tile|spanish)/.test(s)) return 'tile';
+    if (/(metal|standing seam|corrugated|steel|aluminum|panel)/.test(s)) return 'metal';
+    if (/(flat|low slope|low-slope|modified bitumen|tpo|epdm|membrane|built-up|\bbur\b|rolled)/.test(s)) return 'flat';
+    return '';
+  }
+  const roofLabels = { shingle: 'Shingles', tile: 'Tile', metal: 'Metal', flat: 'Flat roof' };
+  let recognizedRoof = '';
+  const roofCoverInput = document.getElementById('roofCoverType');
+  const roofRecognizedEl = document.getElementById('roofRecognized');
+  function updateRoofRecognition() {
+    const t = roofCoverInput.value.trim();
+    recognizedRoof = detectRoofType(t);
+    if (!t) { roofRecognizedEl.style.display = 'none'; return; }
+    roofRecognizedEl.style.display = 'flex';
+    if (recognizedRoof) {
+      roofRecognizedEl.className = 'roof-recognized ok';
+      roofRecognizedEl.innerHTML = '&#10003; <span><strong>' + roofLabels[recognizedRoof] + '</strong> recognized &mdash; the ' + roofLabels[recognizedRoof].toLowerCase() + ' technical background will be used.</span>';
+    } else {
+      roofRecognizedEl.className = 'roof-recognized warn';
+      roofRecognizedEl.innerHTML = 'Roof type not recognized &mdash; type a recognizable material (shingles, tile, metal, or flat roof).';
+    }
+  }
+  roofCoverInput.addEventListener('input', updateRoofRecognition);
 
   // AI endpoint: point this at YOUR proxy (see proxy setup guide).
   // Leave as-is to use a local proxy on the same machine.
@@ -2529,6 +2619,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       docXml = buildCloseups(docXml, sectionsMeta);
       // Expand Appendix B for the permit page images (in order)
       docXml = buildPermitImages(docXml, permitPages.length);
+      // Technical background: keep the recognized roof section, fill DOL-1/DOL/DOL+1
+      if (recognizedRoof) {
+        docXml = buildTechBackground(docXml, recognizedRoof, dolDate);
+      }
       zip.file('word/document.xml', docXml);
 
       const doc = new window.docxtemplater(zip, {
