@@ -510,6 +510,15 @@
   .roof-recognized.warn { background: rgba(148,163,187,0.10); color: var(--ink-dim); border: 1px solid var(--line); }
   .roof-recognized strong { color: var(--orange); text-transform: capitalize; }
 
+  .wx-suggest {
+    margin: 10px 0; padding: 10px 12px; border-radius: 7px; font-size: 13px;
+    background: var(--orange-soft); color: var(--ink); border: 1px solid var(--orange);
+    display: flex; align-items: flex-start; gap: 8px;
+  }
+  .wx-suggest svg { flex-shrink: 0; margin-top: 1px; }
+  .wx-suggest strong { color: var(--orange); }
+  .wx-suggest + .wx-suggest { margin-top: 6px; }
+
 
   .closeup-section {
     border: 1px solid var(--line);
@@ -1027,6 +1036,41 @@
       <div id="fileList"></div>
     </div>
 
+    <div class="divider"></div>
+
+    <div class="field">
+      <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Weather Data</label>
+      <div class="hint" style="margin-bottom:14px;">Paste the raw weather data below. The app records the 3 days around the date of loss (day before, day of, day after) and fills Table 1 (and Table 2 when needed). The table-fill step is set up next.</div>
+
+      <div class="field">
+        <label for="airportStations">Airport Stations</label>
+        <div class="hint" style="margin-bottom:6px;">Paste the list of nearby airport stations. The AI reads this to pick the closest airport that has actual usable data.</div>
+        <textarea id="airportStations" name="airportStations" rows="5" placeholder="e.g. KFPR - Fort Pierce (12 mi), KRSW - Fort Myers (28 mi), KSUA - Stuart (9 mi, incomplete)..." style="width:100%; resize:vertical;"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="airportWeather">Airport Weather Reading</label>
+        <div class="hint" style="margin-bottom:6px;">Paste the weather readings for the chosen airport (precipitation, peak/sustained speed &amp; direction) covering the date of loss &plusmn; 1 day.</div>
+        <textarea id="airportWeather" name="airportWeather" rows="6" placeholder="Paste the airport's daily weather readings here..." style="width:100%; resize:vertical;"></textarea>
+      </div>
+
+      <div id="weatherSuggestions"></div>
+
+      <div class="field" id="secondAirportField" style="display:none;">
+        <label style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" id="useSecondAirport" style="width:auto;"> Use a second airport (Table 2)
+        </label>
+        <div class="hint" style="margin:6px 0;">When two airports are needed, paste the second airport's Daily Summary here. Table 2 fills from it.</div>
+        <textarea id="airportWeather2" name="airportWeather2" rows="6" placeholder="Paste the second airport's daily weather readings here..." style="width:100%; resize:vertical; display:none;"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="stormEvents">Storm Event Data</label>
+        <div class="hint" style="margin-bottom:6px;">Paste the NOAA storm event data for the area around the date of loss.</div>
+        <textarea id="stormEvents" name="stormEvents" rows="6" placeholder="Paste storm event records here..." style="width:100%; resize:vertical;"></textarea>
+      </div>
+    </div>
+
     <div class="actions">
       <button type="submit" id="generateBtn">Generate Report</button>
       <span class="status" id="status"></span>
@@ -1517,6 +1561,7 @@
     const state = 'FL'; // extend later by detecting state from address
     const county = ZIP_COUNTY_FL[zip];
     if (county) {
+      detectedCounty = county; // used by the weather narrative (wx_county1)
       appraiserCard.classList.remove('appraiser-card-warn');
       appraiserCardTitle.textContent = 'County Property Appraiser';
       appraiserCardBody.innerHTML = appraiserLinkHtml(state, county);
@@ -1968,6 +2013,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   }
   const roofLabels = { shingle: 'Shingles', tile: 'Tile', metal: 'Metal', flat: 'Flat roof' };
   let recognizedRoof = '';
+  let detectedCounty = ''; // set by renderAppraiserForZip from the ZIP in Address Line 2
   const roofCoverInput = document.getElementById('roofCoverType');
   const roofRecognizedEl = document.getElementById('roofRecognized');
   function updateRoofRecognition() {
@@ -1984,6 +2030,53 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     }
   }
   roofCoverInput.addEventListener('input', updateRoofRecognition);
+
+  // ---- Weather suggestion triggers (distance >=7mi -> Hailpoint; winds <40 -> extra weather) ----
+  const airportStationsInput = document.getElementById('airportStations');
+  const airportWeatherInput = document.getElementById('airportWeather');
+  const weatherSuggestionsEl = document.getElementById('weatherSuggestions');
+  const secondAirportField = document.getElementById('secondAirportField');
+  const useSecondAirport = document.getElementById('useSecondAirport');
+  const airportWeather2Input = document.getElementById('airportWeather2');
+
+  // Pull the smallest "N mi/miles" distance mentioned in the stations text (the closest usable one).
+  function closestDistanceMiles(text) {
+    const nums = [];
+    const re = /(\d+(?:\.\d+)?)\s*(?:mi\b|miles)/gi;
+    let m; while ((m = re.exec(text || ''))) nums.push(parseFloat(m[1]));
+    return nums.length ? Math.min.apply(null, nums) : null;
+  }
+  // Pull the max wind speed (mph) mentioned in the pasted weather readings.
+  function maxWindMph(text) {
+    const nums = [];
+    const re = /(\d+(?:\.\d+)?)\s*(?:mph)\b/gi;
+    let m; while ((m = re.exec(text || ''))) nums.push(parseFloat(m[1]));
+    // also catch bare 2-3 digit numbers in a "Peak Speed"/"gust" context if no mph tokens
+    return nums.length ? Math.max.apply(null, nums) : null;
+  }
+
+  function updateWeatherSuggestions() {
+    const dist = closestDistanceMiles(airportStationsInput ? airportStationsInput.value : '');
+    const wind = maxWindMph(airportWeatherInput ? airportWeatherInput.value : '');
+    const items = [];
+    if (dist !== null && dist >= 7) {
+      items.push('<strong>Hailpoint suggested.</strong> The closest usable-data airport is ~' + dist + ' mi from the property (&ge; 7 mi) &mdash; consider running Hailpoint for hail data closer to the site.');
+    }
+    if (wind !== null && wind < 40) {
+      items.push('<strong>Extra weather suggested.</strong> Recorded winds are ' + wind + ' mph (&lt; 40 mph) &mdash; consider adding extra weather data (e.g. a second airport or storm-event source).');
+    }
+    weatherSuggestionsEl.innerHTML = items.map(function (t) {
+      return '<div class="wx-suggest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg><span>' + t + '</span></div>';
+    }).join('');
+    // reveal the second-airport option whenever either trigger fires
+    secondAirportField.style.display = items.length ? 'block' : (useSecondAirport && useSecondAirport.checked ? 'block' : 'none');
+  }
+  if (airportStationsInput) airportStationsInput.addEventListener('input', updateWeatherSuggestions);
+  if (airportWeatherInput) airportWeatherInput.addEventListener('input', updateWeatherSuggestions);
+  if (useSecondAirport) useSecondAirport.addEventListener('change', function () {
+    airportWeather2Input.style.display = useSecondAirport.checked ? 'block' : 'none';
+  });
+
 
   // AI endpoint: point this at YOUR proxy (see proxy setup guide).
   // Leave as-is to use a local proxy on the same machine.
@@ -2609,6 +2702,31 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         dated: r.dated || '',
         photos: r.photos || ''
       };
+    });
+
+    // Weather context. Values are filled by the AI weather step (next build);
+    // for now default to blank so no raw {{wx_}} tags show, and honor the
+    // second-airport toggle so the intro sentence reads correctly.
+    context.wx_two = !!(useSecondAirport && useSecondAirport.checked);
+    // County comes from the ZIP (Address Line 2) appraiser lookup, not the airport
+    if (detectedCounty) context.wx_county1 = detectedCounty + ' County';
+    ['wx_t1_start','wx_t1_end','wx_t2_start','wx_t2_end','wx_county1','wx_county2','wx_airport1','wx_airport2','wx_tag1','wx_tag2'].forEach(function (k) {
+      if (context[k] === undefined) context[k] = '';
+    });
+    ['wx','wx2'].forEach(function (p) {
+      for (var r = 1; r <= 3; r++) {
+        ['date','loc','precip','pkspd','pkdir','ssspd','ssdir'].forEach(function (c) {
+          var k = p + '_' + c + '_' + r;
+          if (context[k] === undefined) context[k] = '';
+        });
+      }
+    });
+    // Storm Event Database tables (sed_ tags): default blank so no raw tags render.
+    [1,2].forEach(function (n) {
+      ['sed_event','sed_county','sed_episode','sed_eventnarr'].forEach(function (f) {
+        var k = f + '_' + n;
+        if (context[k] === undefined) context[k] = '';
+      });
     });
 
     try {
