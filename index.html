@@ -469,6 +469,39 @@
   .permit-row input:focus, .permit-row textarea:focus { outline: none; border-color: var(--orange); }
   .permit-include { display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--ink-dim); }
 
+  /* --- File Review --- */
+  .file-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .file-chips:empty { margin-top: 0; }
+  .file-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--navy-700); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 8px; font-size: 12px; color: var(--ink-dim); max-width: 220px;
+  }
+  .file-chip .file-chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip .file-chip-x {
+    background: none; border: none; color: var(--ink-dim); cursor: pointer;
+    padding: 0; font-size: 13px; line-height: 1; box-shadow: none; flex-shrink: 0;
+  }
+  .file-chip.done { border-color: var(--orange); color: var(--ink); }
+  .file-row {
+    border: 1px solid var(--line); border-radius: 9px; padding: 12px;
+    margin-bottom: 10px; background: var(--navy-700);
+  }
+  .file-row-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .file-row-head .file-remove {
+    margin-left: auto; background: transparent; border: 1px solid var(--line);
+    color: var(--ink-dim); border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; box-shadow: none;
+  }
+  .file-row-head .file-remove:hover { border-color: var(--orange); color: var(--orange); transform: none; }
+  .file-row .file-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .file-row .file-fields .full { grid-column: 1 / -1; }
+  .file-row label.mini { font-size: 11px; color: var(--ink-dim); margin-bottom: 3px; display: block; }
+  .file-row input {
+    width: 100%; padding: 7px 9px; font-family: var(--sans); font-size: 13px;
+    color: var(--ink); background: var(--navy-600); border: 1px solid var(--line); border-radius: 6px;
+  }
+  .file-row input:focus { outline: none; border-color: var(--orange); }
+
 
   .closeup-section {
     border: 1px solid var(--line);
@@ -957,6 +990,32 @@
         <button type="button" id="addPermitBtn" class="add-btn" style="margin:0;">+ Add permit</button>
       </div>
       <div id="permitList"></div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="field">
+      <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">File Review</label>
+      <div class="hint" style="margin-bottom:14px;">Drag &amp; drop all reviewed documents (any type &mdash; PDFs, images, Word docs, correspondence). The app reads each to pull the file name, who sent it, the document date, and when any photos were taken. Handles large batches (50+). Everything is editable by hand.</div>
+
+      <label class="permit-drop" id="fileDrop">
+        <input type="file" id="fileReviewInput" multiple style="display:none;">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span id="fileDropText">Drop documents here, or click to add (any file type)</span>
+      </label>
+
+      <div id="fileChips" class="file-chips"></div>
+
+      <div id="fileReadRow" style="display:none; margin-top:12px; align-items:center; gap:12px;">
+        <button type="button" id="fileReadBtn" class="add-btn" style="margin:0;">Read documents with AI</button>
+        <span class="status" id="fileReadStatus"></span>
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top:20px; margin-bottom:8px;">
+        <label style="margin:0;">Document List <span style="color:var(--ink-dim); font-weight:400;">(edit freely)</span></label>
+        <button type="button" id="addFileBtn" class="add-btn" style="margin:0;">+ Add document</button>
+      </div>
+      <div id="fileList"></div>
     </div>
 
     <div class="actions">
@@ -2048,6 +2107,221 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   });
 
 
+  // ============================================================
+  // FILE REVIEW
+  //   - drag/drop any documents (PDF, image, docx, etc.), 50+ ok
+  //   - AI reads each -> filename / origin / dated / photos
+  //   - editable list (manual override), one row per document
+  // ============================================================
+
+  // Point this at YOUR proxy (same proxy as permits; see setup guide).
+  const FILE_AI_ENDPOINT = 'http://localhost:8787/read-file';
+
+  const fileReviewInput = document.getElementById('fileReviewInput');
+  const fileDrop = document.getElementById('fileDrop');
+  const fileChipsEl = document.getElementById('fileChips');
+  const fileReadRow = document.getElementById('fileReadRow');
+  const fileReadBtn = document.getElementById('fileReadBtn');
+  const fileReadStatus = document.getElementById('fileReadStatus');
+  const addFileBtn = document.getElementById('addFileBtn');
+  const fileListEl = document.getElementById('fileList');
+
+  // reviewDocs: intake queue [{ id, name, file, mime, read:false }]
+  const reviewDocs = [];
+  let reviewSeq = 0;
+
+  function refreshFileReadRow() {
+    fileReadRow.style.display = reviewDocs.length ? 'flex' : 'none';
+  }
+
+  function renderFileChips() {
+    fileChipsEl.innerHTML = '';
+    reviewDocs.forEach(function (d) {
+      const chip = document.createElement('div');
+      chip.className = 'file-chip' + (d.read ? ' done' : '');
+      chip.innerHTML =
+        '<span class="file-chip-name" title="' + escapeAttr(d.name) + '">' + escapeHtml(d.name) + '</span>' +
+        '<button type="button" class="file-chip-x" aria-label="Remove">&times;</button>';
+      chip.querySelector('.file-chip-x').addEventListener('click', function () {
+        const i = reviewDocs.indexOf(d);
+        if (i > -1) reviewDocs.splice(i, 1);
+        renderFileChips(); refreshFileReadRow();
+      });
+      fileChipsEl.appendChild(chip);
+    });
+  }
+
+  // Turn a relative path like "Correspondence/Expert Files/Report.pdf" into the
+  // bold header label "Correspondence > Expert Files". Top-level files (only the
+  // dropped root folder, no subfolder) get an empty label -> no header line.
+  function folderLabel(relativePath) {
+    if (!relativePath) return '';
+    const parts = relativePath.split('/').filter(Boolean);
+    const folders = parts.slice(0, -1); // drop the filename
+    if (folders.length <= 1) return '';  // only the root folder -> no header
+    return folders.join(' > ');
+  }
+
+  // items: array of File, or of { file, relativePath }
+  function addReviewDocs(items) {
+    Array.from(items).forEach(function (it) {
+      const file = it.file || it;
+      const rel = it.relativePath || file.webkitRelativePath || '';
+      reviewSeq += 1;
+      reviewDocs.push({
+        id: reviewSeq, name: file.name, file: file,
+        mime: file.type || '', path: folderLabel(rel), read: false
+      });
+    });
+    renderFileChips();
+    refreshFileReadRow();
+  }
+
+  // Recursively read a dropped directory entry, collecting {file, relativePath}
+  function readEntry(entry, prefix, out) {
+    return new Promise(function (resolve) {
+      if (entry.isFile) {
+        entry.file(function (file) { out.push({ file: file, relativePath: prefix + file.name }); resolve(); },
+                   function () { resolve(); });
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const batch = function () {
+          reader.readEntries(function (entries) {
+            if (!entries.length) { resolve(); return; }
+            Promise.all(entries.map(function (e) { return readEntry(e, prefix + entry.name + '/', out); })).then(batch);
+          }, function () { resolve(); });
+        };
+        batch();
+      } else { resolve(); }
+    });
+  }
+
+  fileReviewInput.addEventListener('change', function () {
+    addReviewDocs(fileReviewInput.files);
+    fileReviewInput.value = '';
+  });
+  ['dragenter', 'dragover'].forEach(function (evt) {
+    fileDrop.addEventListener(evt, function (e) { e.preventDefault(); e.stopPropagation(); fileDrop.classList.add('dragover'); });
+  });
+  ['dragleave', 'dragend'].forEach(function (evt) {
+    fileDrop.addEventListener(evt, function (e) { e.preventDefault(); e.stopPropagation(); fileDrop.classList.remove('dragover'); });
+  });
+  fileDrop.addEventListener('drop', async function (e) {
+    e.preventDefault(); e.stopPropagation(); fileDrop.classList.remove('dragover');
+    const dt = e.dataTransfer;
+    if (!dt) return;
+    // If a folder was dropped, walk it to preserve subfolder paths
+    const items = dt.items;
+    if (items && items.length && items[0].webkitGetAsEntry) {
+      const entries = [];
+      for (let i = 0; i < items.length; i++) {
+        const en = items[i].webkitGetAsEntry && items[i].webkitGetAsEntry();
+        if (en) entries.push(en);
+      }
+      if (entries.length) {
+        fileReadStatus.textContent = 'Reading folder…';
+        const collected = [];
+        for (const en of entries) { await readEntry(en, '', collected); }
+        fileReadStatus.textContent = '';
+        addReviewDocs(collected);
+        return;
+      }
+    }
+    if (dt.files && dt.files.length) addReviewDocs(dt.files);
+  });
+
+  // ---- Editable document list ----
+  // fileRows: [{ filename, origin, dated, photos }]
+  const fileRows = [];
+
+  function renderFileList() {
+    fileListEl.innerHTML = '';
+    fileRows.forEach(function (row) {
+      const el = document.createElement('div');
+      el.className = 'file-row';
+      el.innerHTML =
+        '<div class="file-row-head">' +
+          '<button type="button" class="file-remove">Remove</button>' +
+        '</div>' +
+        '<div class="file-fields">' +
+          '<div class="full"><label class="mini">Folder path (bold header — leave blank for none)</label><input type="text" data-k="path" placeholder="e.g. Correspondence &gt; Expert Files" value="' + escapeAttr(row.path) + '"></div>' +
+          '<div class="full"><label class="mini">File name</label><input type="text" data-k="filename" value="' + escapeAttr(row.filename) + '"></div>' +
+          '<div class="full"><label class="mini">Origin (who sent it)</label><input type="text" data-k="origin" value="' + escapeAttr(row.origin) + '"></div>' +
+          '<div><label class="mini">Dated (leave blank to omit)</label><input type="text" data-k="dated" placeholder="MM/DD/YYYY" value="' + escapeAttr(row.dated) + '"></div>' +
+          '<div><label class="mini">Photos taken (leave blank to omit)</label><input type="text" data-k="photos" placeholder="MM/DD/YYYY" value="' + escapeAttr(row.photos) + '"></div>' +
+        '</div>';
+      el.querySelectorAll('[data-k]').forEach(function (inp) {
+        const k = inp.getAttribute('data-k');
+        inp.addEventListener('input', function () { row[k] = inp.value; });
+      });
+      el.querySelector('.file-remove').addEventListener('click', function () {
+        const i = fileRows.indexOf(row);
+        if (i > -1) fileRows.splice(i, 1);
+        renderFileList();
+      });
+      fileListEl.appendChild(el);
+    });
+  }
+
+  addFileBtn.addEventListener('click', function () {
+    fileRows.push({ path: '', filename: '', origin: '', dated: '', photos: '' });
+    renderFileList();
+  });
+
+  // ---- read a File as base64 (for sending to the proxy) ----
+  function fileToBase64(file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () { resolve(reader.result.split(',')[1]); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ---- AI read: send each document to the proxy, one at a time (handles 50+) ----
+  fileReadBtn.addEventListener('click', async function () {
+    if (!reviewDocs.length) return;
+    fileReadBtn.disabled = true;
+    let done = 0, failed = 0;
+    for (let i = 0; i < reviewDocs.length; i++) {
+      const d = reviewDocs[i];
+      if (d.read) { done++; continue; }
+      fileReadStatus.textContent = 'Reading ' + (i + 1) + ' of ' + reviewDocs.length + '… (' + d.name + ')';
+      try {
+        const base64 = await fileToBase64(d.file);
+        const resp = await fetch(FILE_AI_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: d.name, media_type: d.mime || 'application/octet-stream', file_base64: base64 })
+        });
+        if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
+        const data = await resp.json();
+        fileRows.push({
+          path: d.path || '',                  // subfolder header (from the dropped folder)
+          filename: data.filename || d.name,   // fall back to the real file name
+          origin: data.origin || '',
+          dated: data.dated || '',
+          photos: data.photos || ''
+        });
+        d.read = true;
+        done++;
+        renderFileList();
+        renderFileChips();
+      } catch (err) {
+        console.error(err);
+        failed++;
+        // keep going through the rest even if one fails
+      }
+    }
+    if (failed && !done) {
+      fileReadStatus.textContent = 'Could not reach the AI proxy — check it is running, or add documents manually.';
+    } else {
+      fileReadStatus.textContent = 'Read ' + done + ' document(s)' + (failed ? (', ' + failed + ' could not be read (add manually)') : '') + ' — review and edit below.';
+    }
+    fileReadBtn.disabled = false;
+  });
+
+
   // --- Template loading (kept in memory while page is open) ---
   const templateInput = document.getElementById('templateFile');
   const templateLoader = document.getElementById('templateLoader');
@@ -2235,6 +2509,17 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           description: r.description || ''
         };
       });
+
+    // File Review -> context.files (dated/photos empty => their lines drop in the template)
+    context.files = fileRows.map(function (r) {
+      return {
+        path: r.path || '',
+        filename: r.filename || '',
+        origin: r.origin || '',
+        dated: r.dated || '',
+        photos: r.photos || ''
+      };
+    });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
