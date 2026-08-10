@@ -519,6 +519,23 @@
   .wx-suggest strong { color: var(--orange); }
   .wx-suggest + .wx-suggest { margin-top: 6px; }
 
+  .permit-drop.drag { border-color: var(--orange); background: var(--orange-soft); }
+  .wx-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .wx-file-chip { background: rgba(148,163,187,0.12); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; font-size: 12px; color: var(--ink-dim); }
+  .wx-file-x { cursor: pointer; color: var(--orange); font-weight: 700; margin-left: 4px; }
+  .wx-result-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(148,163,187,0.04); }
+  .wx-result-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+  .wx-match { font-weight: 400; font-size: 11px; color: var(--orange); }
+  .wx-ap-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; }
+  .wx-ap-meta input { width: 180px; }
+  .wx-edit-table { width: 100%; border-collapse: collapse; }
+  .wx-edit-table th { font-size: 10px; text-transform: uppercase; color: var(--ink-dim); font-weight: 600; padding: 2px; text-align: left; }
+  .wx-edit-table td { padding: 1px; }
+  .wx-edit-table input { width: 100%; font-size: 12px; padding: 4px 5px; }
+  .wx-storm-grid { display: grid; grid-template-columns: 120px 1fr; gap: 6px 10px; align-items: start; }
+  .wx-storm-grid label { font-size: 12px; color: var(--ink-dim); padding-top: 6px; }
+  .wx-storm-grid input, .wx-storm-grid textarea { width: 100%; font-size: 12px; resize: vertical; }
+
 
   .closeup-section {
     border: 1px solid var(--line);
@@ -1040,35 +1057,48 @@
 
     <div class="field">
       <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Weather Data</label>
-      <div class="hint" style="margin-bottom:14px;">Paste the raw weather data below. The app records the 3 days around the date of loss (day before, day of, day after) and fills Table 1 (and Table 2 when needed). The table-fill step is set up next.</div>
+      <div class="hint" style="margin-bottom:14px;">Drop the NOAA documents below (PDF, PNG, or JPG). The app reads them with AI, records the 3 days around the date of loss, and fills the airport and storm tables. You can edit every value before generating.</div>
 
       <div class="field">
-        <label for="airportStations">Airport Stations</label>
-        <div class="hint" style="margin-bottom:6px;">Paste the list of nearby airport stations. The AI reads this to pick the closest airport that has actual usable data.</div>
-        <textarea id="airportStations" name="airportStations" rows="5" placeholder="e.g. KFPR - Fort Pierce (12 mi), KRSW - Fort Myers (28 mi), KSUA - Stuart (9 mi, incomplete)..." style="width:100%; resize:vertical;"></textarea>
+        <label>Airport Stations <span style="color:var(--ink-dim); font-weight:400;">(list of nearby stations)</span></label>
+        <div class="hint" style="margin-bottom:6px;">Used to pick the closest airport with usable data and read its distance from the property.</div>
+        <label class="permit-drop" id="wxStationsDrop">
+          <input type="file" class="wx-file-input" data-kind="stations" accept="image/*,application/pdf" multiple style="display:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Drop the stations sheet here, or click to add</span>
+        </label>
+        <div class="wx-files" data-kind="stations"></div>
       </div>
 
       <div class="field">
-        <label for="airportWeather">Airport Weather Reading</label>
-        <div class="hint" style="margin-bottom:6px;">Paste the weather readings for the chosen airport (precipitation, peak/sustained speed &amp; direction) covering the date of loss &plusmn; 1 day.</div>
-        <textarea id="airportWeather" name="airportWeather" rows="6" placeholder="Paste the airport's daily weather readings here..." style="width:100%; resize:vertical;"></textarea>
+        <label>Airport Daily Summary <span style="color:var(--ink-dim); font-weight:400;">(1 or 2 airports)</span></label>
+        <div class="hint" style="margin-bottom:6px;">The daily readings the table is built from. Add a second airport's summary if a second table is needed.</div>
+        <label class="permit-drop" id="wxDailyDrop">
+          <input type="file" class="wx-file-input" data-kind="daily_summary" accept="image/*,application/pdf" multiple style="display:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Drop the Daily Summary here, or click to add</span>
+        </label>
+        <div class="wx-files" data-kind="daily_summary"></div>
+      </div>
+
+      <div class="field">
+        <label>Storm Events <span style="color:var(--ink-dim); font-weight:400;">(Storm Events Database)</span></label>
+        <div class="hint" style="margin-bottom:6px;">The AI picks the event most related to the cause of loss and closest to the property (by ZIP/county) for Table 1, and the next best for Table 2 &mdash; all left for your review.</div>
+        <label class="permit-drop" id="wxStormDrop">
+          <input type="file" class="wx-file-input" data-kind="storm_event" accept="image/*,application/pdf" multiple style="display:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Drop storm event pages here, or click to add</span>
+        </label>
+        <div class="wx-files" data-kind="storm_event"></div>
+      </div>
+
+      <div style="margin-top:12px; display:flex; align-items:center; gap:12px;">
+        <button type="button" id="weatherReadBtn" class="add-btn" style="margin:0;">Read weather with AI</button>
+        <span class="status" id="weatherReadStatus"></span>
       </div>
 
       <div id="weatherSuggestions"></div>
-
-      <div class="field" id="secondAirportField" style="display:none;">
-        <label style="display:flex; align-items:center; gap:8px;">
-          <input type="checkbox" id="useSecondAirport" style="width:auto;"> Use a second airport (Table 2)
-        </label>
-        <div class="hint" style="margin:6px 0;">When two airports are needed, paste the second airport's Daily Summary here. Table 2 fills from it.</div>
-        <textarea id="airportWeather2" name="airportWeather2" rows="6" placeholder="Paste the second airport's daily weather readings here..." style="width:100%; resize:vertical; display:none;"></textarea>
-      </div>
-
-      <div class="field">
-        <label for="stormEvents">Storm Event Data</label>
-        <div class="hint" style="margin-bottom:6px;">Paste the NOAA storm event data for the area around the date of loss.</div>
-        <textarea id="stormEvents" name="stormEvents" rows="6" placeholder="Paste storm event records here..." style="width:100%; resize:vertical;"></textarea>
-      </div>
+      <div id="weatherResults"></div>
     </div>
 
     <div class="actions">
@@ -2031,51 +2061,188 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   }
   roofCoverInput.addEventListener('input', updateRoofRecognition);
 
-  // ---- Weather suggestion triggers (distance >=7mi -> Hailpoint; winds <40 -> extra weather) ----
-  const airportStationsInput = document.getElementById('airportStations');
-  const airportWeatherInput = document.getElementById('airportWeather');
+  // ============================================================
+  // WEATHER: drag/drop NOAA docs -> AI reads -> editable results
+  //   kinds: stations, daily_summary, storm_event
+  //   one /read-weather call; airport + storm blocks kept separate
+  // ============================================================
+  const WEATHER_AI_ENDPOINT = 'http://localhost:8787/read-weather';
   const weatherSuggestionsEl = document.getElementById('weatherSuggestions');
-  const secondAirportField = document.getElementById('secondAirportField');
-  const useSecondAirport = document.getElementById('useSecondAirport');
-  const airportWeather2Input = document.getElementById('airportWeather2');
+  const weatherResultsEl = document.getElementById('weatherResults');
+  const weatherReadBtn = document.getElementById('weatherReadBtn');
+  const weatherReadStatus = document.getElementById('weatherReadStatus');
 
-  // Pull the smallest "N mi/miles" distance mentioned in the stations text (the closest usable one).
-  function closestDistanceMiles(text) {
-    const nums = [];
-    const re = /(\d+(?:\.\d+)?)\s*(?:mi\b|miles)/gi;
-    let m; while ((m = re.exec(text || ''))) nums.push(parseFloat(m[1]));
-    return nums.length ? Math.min.apply(null, nums) : null;
+  // uploaded files, grouped by kind
+  const weatherFiles = { stations: [], daily_summary: [], storm_event: [] };
+  // AI results (editable): { airports:[{name,tag,distance,days:[{...}]}], storms:[{event,county,episode,eventnarr,match}] }
+  let weatherData = { airports: [], storms: [] };
+
+  function readAsDataURL(file) {
+    return new Promise(function (res, rej) {
+      const r = new FileReader();
+      r.onload = function () { res(r.result); };
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
   }
-  // Pull the max wind speed (mph) mentioned in the pasted weather readings.
-  function maxWindMph(text) {
-    const nums = [];
-    const re = /(\d+(?:\.\d+)?)\s*(?:mph)\b/gi;
-    let m; while ((m = re.exec(text || ''))) nums.push(parseFloat(m[1]));
-    // also catch bare 2-3 digit numbers in a "Peak Speed"/"gust" context if no mph tokens
-    return nums.length ? Math.max.apply(null, nums) : null;
+
+  function renderWeatherFiles(kind) {
+    const wrap = document.querySelector('.wx-files[data-kind="' + kind + '"]');
+    if (!wrap) return;
+    wrap.innerHTML = weatherFiles[kind].map(function (f, i) {
+      return '<div class="wx-file-chip">' + escapeHtml(f.name) +
+        ' <span class="wx-file-x" data-kind="' + kind + '" data-i="' + i + '">&times;</span></div>';
+    }).join('');
+    wrap.querySelectorAll('.wx-file-x').forEach(function (x) {
+      x.addEventListener('click', function () {
+        weatherFiles[x.dataset.kind].splice(+x.dataset.i, 1);
+        renderWeatherFiles(x.dataset.kind);
+        updateWeatherReadVisibility();
+      });
+    });
+  }
+  function updateWeatherReadVisibility() {
+    const total = weatherFiles.stations.length + weatherFiles.daily_summary.length + weatherFiles.storm_event.length;
+    weatherReadBtn.style.display = total ? 'inline-block' : 'none';
+  }
+  weatherReadBtn.style.display = 'none';
+
+  document.querySelectorAll('.wx-file-input').forEach(function (input) {
+    const kind = input.dataset.kind;
+    input.addEventListener('change', async function () {
+      for (const file of Array.from(input.files || [])) {
+        const dataUrl = await readAsDataURL(file);
+        weatherFiles[kind].push({ name: file.name, mime: file.type || 'image/png', dataUrl: dataUrl });
+      }
+      input.value = '';
+      renderWeatherFiles(kind);
+      updateWeatherReadVisibility();
+    });
+    // drag highlight on the matching dropzone
+    const drop = input.closest('.permit-drop');
+    if (drop) {
+      ['dragover', 'dragenter'].forEach(function (ev) {
+        drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); });
+      });
+      ['dragleave', 'drop'].forEach(function (ev) {
+        drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); });
+      });
+      drop.addEventListener('drop', async function (e) {
+        for (const file of Array.from(e.dataTransfer.files || [])) {
+          const dataUrl = await readAsDataURL(file);
+          weatherFiles[kind].push({ name: file.name, mime: file.type || 'image/png', dataUrl: dataUrl });
+        }
+        renderWeatherFiles(kind);
+        updateWeatherReadVisibility();
+      });
+    }
+  });
+
+  // pull DOL / cause of loss / zip / county from the form to guide the AI
+  function getWeatherMeta() {
+    const dolEl = document.querySelector('[name="dateOfLoss"]');
+    const causes = Array.from(document.querySelectorAll('[name="causeOfLoss"]:checked')).map(function (c) { return c.value; });
+    const addr2 = (document.getElementById('addressLine2') || {}).value || '';
+    const zipM = addr2.match(/\b(\d{5})\b/);
+    return {
+      date_of_loss: dolEl ? dolEl.value : '',
+      cause_of_loss: causes.join(', '),
+      zip: zipM ? zipM[1] : '',
+      county: detectedCounty || ''
+    };
+  }
+
+  weatherReadBtn.addEventListener('click', async function () {
+    const images = [];
+    ['stations', 'daily_summary', 'storm_event'].forEach(function (kind) {
+      weatherFiles[kind].forEach(function (f) {
+        images.push({ kind: kind, media_type: f.mime, data: f.dataUrl.split(',')[1] });
+      });
+    });
+    if (!images.length) return;
+    weatherReadBtn.disabled = true;
+    weatherReadStatus.textContent = 'Reading ' + images.length + ' document(s) with AI…';
+    const meta = getWeatherMeta();
+    try {
+      const resp = await fetch(WEATHER_AI_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ images: images }, meta))
+      });
+      if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
+      const data = await resp.json();
+      weatherData = { airports: Array.isArray(data.airports) ? data.airports : [], storms: Array.isArray(data.storms) ? data.storms : [] };
+      weatherReadStatus.textContent = 'Read ' + weatherData.airports.length + ' airport(s), ' + weatherData.storms.length + ' storm event(s) — review and edit below.';
+      renderWeatherResults();
+      updateWeatherSuggestions();
+    } catch (err) {
+      console.error(err);
+      weatherReadStatus.textContent = 'Could not reach the AI proxy (' + err.message + '). Check the proxy is running.';
+    }
+    weatherReadBtn.disabled = false;
+  });
+
+  const WX_COLS = [['date', 'Date'], ['loc', 'Location'], ['precip', 'Precip'], ['pkspd', 'Peak Spd'], ['pkdir', 'Peak Dir'], ['ssspd', 'Sust Spd'], ['ssdir', 'Sust Dir']];
+  function renderWeatherResults() {
+    let html = '';
+    weatherData.airports.forEach(function (ap, ai) {
+      ap.days = ap.days || [];
+      while (ap.days.length < 3) ap.days.push({});
+      html += '<div class="wx-result-card"><div class="wx-result-title">Airport ' + (ai + 1) + (ai === 0 ? ' — Table 1' : ' — Table 2') + '</div>';
+      html += '<div class="wx-ap-meta">' +
+        'Name <input data-ap="' + ai + '" data-f="name" value="' + escapeAttr(ap.name || '') + '">' +
+        'Tag <input data-ap="' + ai + '" data-f="tag" value="' + escapeAttr(ap.tag || '') + '" style="width:70px;">' +
+        'Distance (mi) <input data-ap="' + ai + '" data-f="distance" value="' + escapeAttr(ap.distance || '') + '" style="width:70px;"></div>';
+      html += '<table class="wx-edit-table"><tr>' + WX_COLS.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') + '</tr>';
+      ap.days.slice(0, 3).forEach(function (d, di) {
+        html += '<tr>' + WX_COLS.map(function (c) {
+          return '<td><input data-ap="' + ai + '" data-day="' + di + '" data-f="' + c[0] + '" value="' + escapeAttr(d[c[0]] || '') + '"></td>';
+        }).join('') + '</tr>';
+      });
+      html += '</table></div>';
+    });
+    weatherData.storms.forEach(function (s, si) {
+      html += '<div class="wx-result-card"><div class="wx-result-title">Storm event ' + (si + 1) + (si === 0 ? ' — Table 1' : ' — Table 2') +
+        (s.match ? ' <span class="wx-match">' + escapeHtml(s.match) + '</span>' : '') + '</div>';
+      html += '<div class="wx-storm-grid">' +
+        '<label>Event</label><input data-storm="' + si + '" data-f="event" value="' + escapeAttr(s.event || '') + '">' +
+        '<label>County/Area</label><input data-storm="' + si + '" data-f="county" value="' + escapeAttr(s.county || '') + '">' +
+        '<label>Episode Narrative</label><textarea data-storm="' + si + '" data-f="episode" rows="3">' + escapeHtml(s.episode || '') + '</textarea>' +
+        '<label>Event Narrative</label><textarea data-storm="' + si + '" data-f="eventnarr" rows="4">' + escapeHtml(s.eventnarr || '') + '</textarea>' +
+        '</div></div>';
+    });
+    weatherResultsEl.innerHTML = html;
+    // wire edits back into weatherData
+    weatherResultsEl.querySelectorAll('input[data-ap], textarea[data-ap]').forEach(function (el) {
+      el.addEventListener('input', function () {
+        const ai = +el.dataset.ap;
+        if (el.dataset.day !== undefined) weatherData.airports[ai].days[+el.dataset.day][el.dataset.f] = el.value;
+        else { weatherData.airports[ai][el.dataset.f] = el.value; if (el.dataset.f === 'distance') updateWeatherSuggestions(); }
+      });
+    });
+    weatherResultsEl.querySelectorAll('[data-storm]').forEach(function (el) {
+      el.addEventListener('input', function () { weatherData.storms[+el.dataset.storm][el.dataset.f] = el.value; });
+    });
   }
 
   function updateWeatherSuggestions() {
-    const dist = closestDistanceMiles(airportStationsInput ? airportStationsInput.value : '');
-    const wind = maxWindMph(airportWeatherInput ? airportWeatherInput.value : '');
     const items = [];
+    const ap0 = weatherData.airports[0];
+    const dist = ap0 && ap0.distance ? parseFloat(ap0.distance) : null;
+    // max recorded wind = max of peak speeds across the chosen airport's days
+    let wind = null;
+    if (ap0 && ap0.days) ap0.days.forEach(function (d) { const v = parseFloat(d.pkspd); if (!isNaN(v)) wind = (wind === null ? v : Math.max(wind, v)); });
     if (dist !== null && dist >= 7) {
-      items.push('<strong>Hailpoint suggested.</strong> The closest usable-data airport is ~' + dist + ' mi from the property (&ge; 7 mi) &mdash; consider running Hailpoint for hail data closer to the site.');
+      items.push('<strong>Hailpoint suggested.</strong> The chosen airport is ~' + dist + ' mi from the property (&ge; 7 mi) &mdash; consider running Hailpoint for hail data closer to the site.');
     }
     if (wind !== null && wind < 40) {
-      items.push('<strong>Extra weather suggested.</strong> Recorded winds are ' + wind + ' mph (&lt; 40 mph) &mdash; consider adding extra weather data (e.g. a second airport or storm-event source).');
+      items.push('<strong>Extra weather suggested.</strong> Recorded peak winds are ' + wind + ' mph (&lt; 40 mph) &mdash; consider adding extra weather data (a second airport or storm-event source).');
     }
     weatherSuggestionsEl.innerHTML = items.map(function (t) {
       return '<div class="wx-suggest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg><span>' + t + '</span></div>';
     }).join('');
-    // reveal the second-airport option whenever either trigger fires
-    secondAirportField.style.display = items.length ? 'block' : (useSecondAirport && useSecondAirport.checked ? 'block' : 'none');
   }
-  if (airportStationsInput) airportStationsInput.addEventListener('input', updateWeatherSuggestions);
-  if (airportWeatherInput) airportWeatherInput.addEventListener('input', updateWeatherSuggestions);
-  if (useSecondAirport) useSecondAirport.addEventListener('change', function () {
-    airportWeather2Input.style.display = useSecondAirport.checked ? 'block' : 'none';
-  });
+
 
 
   // AI endpoint: point this at YOUR proxy (see proxy setup guide).
@@ -2252,6 +2419,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     if (!permitPages.length) return;
     permitReadBtn.disabled = true;
     let added = 0;
+    let anyPermitsSeen = false; // did any page list ANY permit record (even irrelevant)?
     for (let i = 0; i < permitPages.length; i++) {
       permitReadStatus.textContent = 'Reading page ' + (i + 1) + ' of ' + permitPages.length + '…';
       const pg = permitPages[i];
@@ -2264,6 +2432,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         });
         if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
         const data = await resp.json();
+        if (data.any_permits) anyPermitsSeen = true;
         const permits = Array.isArray(data.permits) ? data.permits : [];
         permits.forEach(function (p) {
           permitRows.push({
@@ -2284,7 +2453,14 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         return;
       }
     }
-    permitReadStatus.textContent = added ? ('Added ' + added + ' permit(s) — review and edit below.') : 'No permits detected — add them manually if needed.';
+    // Two distinct empty states: permits exist but none relevant, vs. no records at all.
+    if (added) {
+      permitReadStatus.textContent = 'Added ' + added + ' permit(s) — review and edit below.';
+    } else if (anyPermitsSeen) {
+      permitReadStatus.textContent = 'No relevant permit information found.';
+    } else {
+      permitReadStatus.textContent = 'No permits found.';
+    }
     permitReadBtn.disabled = false;
     renderPermitList();
   });
@@ -2704,29 +2880,50 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       };
     });
 
-    // Weather context. Values are filled by the AI weather step (next build);
-    // for now default to blank so no raw {{wx_}} tags show, and honor the
-    // second-airport toggle so the intro sentence reads correctly.
-    context.wx_two = !!(useSecondAirport && useSecondAirport.checked);
-    // County comes from the ZIP (Address Line 2) appraiser lookup, not the airport
+    // Weather context — mapped from the AI-read + edited weatherData.
+    // Airports: [0] -> Table 1 (wx_), [1] -> Table 2 (wx2_). Storms: [0]->sed_*_1, [1]->sed_*_2.
+    const wxMonths = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    function fmtLong(d) { return d ? (wxMonths[d.getMonth()] + ' ' + ordinal(d.getDate()) + ', ' + d.getFullYear()) : ''; }
+    function ordinal(n) { const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+
+    const wxAirports = (weatherData && weatherData.airports) || [];
+    const wxStorms = (weatherData && weatherData.storms) || [];
+    context.wx_two = wxAirports.length >= 2;
+
+    // 3-day window from the Date of Loss
+    if (dolDate) {
+      context.wx_t1_start = fmtLong(new Date(dolDate.getTime() - 86400000));
+      context.wx_t1_end = fmtLong(new Date(dolDate.getTime() + 86400000));
+      context.wx_t2_start = context.wx_t1_start;
+      context.wx_t2_end = context.wx_t1_end;
+    }
+    // County from the ZIP (Address Line 2), not the airport
     if (detectedCounty) context.wx_county1 = detectedCounty + ' County';
+    if (detectedCounty) context.wx_county2 = detectedCounty + ' County';
+    // airport names + tags
+    if (wxAirports[0]) { context.wx_airport1 = wxAirports[0].name || ''; context.wx_tag1 = wxAirports[0].tag || ''; }
+    if (wxAirports[1]) { context.wx_airport2 = wxAirports[1].name || ''; context.wx_tag2 = wxAirports[1].tag || ''; }
+
     ['wx_t1_start','wx_t1_end','wx_t2_start','wx_t2_end','wx_county1','wx_county2','wx_airport1','wx_airport2','wx_tag1','wx_tag2'].forEach(function (k) {
       if (context[k] === undefined) context[k] = '';
     });
-    ['wx','wx2'].forEach(function (p) {
+    // airport table cells (wx_ = airport 0, wx2_ = airport 1)
+    [['wx', 0], ['wx2', 1]].forEach(function (pair) {
+      const p = pair[0], ap = wxAirports[pair[1]];
       for (var r = 1; r <= 3; r++) {
+        const day = ap && ap.days ? (ap.days[r - 1] || {}) : {};
         ['date','loc','precip','pkspd','pkdir','ssspd','ssdir'].forEach(function (c) {
-          var k = p + '_' + c + '_' + r;
-          if (context[k] === undefined) context[k] = '';
+          context[p + '_' + c + '_' + r] = (day[c] !== undefined && day[c] !== null) ? String(day[c]) : '';
         });
       }
     });
-    // Storm Event Database tables (sed_ tags): default blank so no raw tags render.
-    [1,2].forEach(function (n) {
-      ['sed_event','sed_county','sed_episode','sed_eventnarr'].forEach(function (f) {
-        var k = f + '_' + n;
-        if (context[k] === undefined) context[k] = '';
-      });
+    // storm tables (sed_*_1 = best event, sed_*_2 = next best)
+    [1, 2].forEach(function (n) {
+      const s = wxStorms[n - 1] || {};
+      context['sed_event_' + n] = s.event || '';
+      context['sed_county_' + n] = s.county || '';
+      context['sed_episode_' + n] = s.episode || '';
+      context['sed_eventnarr_' + n] = s.eventnarr || '';
     });
 
     try {
