@@ -526,6 +526,8 @@
   .wx-result-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(148,163,187,0.04); }
   .wx-result-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
   .wx-match { font-weight: 400; font-size: 11px; color: var(--orange); }
+  .wx-check { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; font-size: 12px; color: var(--ink-dim); margin-right: 8px; }
+  .wx-check input { width: auto; margin: 0; }
   .wx-ap-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; }
   .wx-ap-meta input { width: 180px; }
   .wx-edit-table { width: 100%; border-collapse: collapse; }
@@ -1690,6 +1692,22 @@
     return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
   }
 
+  // Appendix C — same clone-per-page pattern as buildPermitImages, for the selected weather docs.
+  function buildWeatherImages(docXml, pageCount) {
+    const START = '<!--WXIMG_START-->';
+    const END = '<!--WXIMG_END-->';
+    const s = docXml.indexOf(START);
+    const e = docXml.indexOf(END);
+    if (s === -1 || e === -1) return docXml;
+    const base = docXml.slice(s + START.length, e);
+    if (pageCount <= 0) return docXml.slice(0, s) + docXml.slice(e + END.length);
+    let assembled = '';
+    for (let n = 1; n <= pageCount; n++) {
+      assembled += base.replace('@@WX_IMG_1@@', '@@WX_IMG_' + n + '@@');
+    }
+    return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
+  }
+
   // --- Repeatable close-up sections: clone + reflow empty slots ---
   // buildCloseups(docXml, sections)
   //   sections: [{ position, filled:[b,b,b,b,b,b] }, ...] in display order
@@ -1858,12 +1876,25 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     relsXml = relsXml.replace('</Relationships>',
       '<Relationship Id="' + rId + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image' + mediaN + '.' + ext + '"/></Relationships>');
 
-    // EMU sizing (max width ~2.6in, keep aspect)
+    // EMU sizing. Three modes:
+    //  - info.fitPage: scale to fit within the printable area (matches this template's
+    //    8.5x11 page with 0.5in margins -> 7.5in x 10in usable), whole page visible, centered
+    //  - info.widthIn: fixed width in inches
+    //  - default: ~2.6in wide
     const EMU = 914400;
-    const maxW = Math.round(2.6 * EMU);
     let w = info.w || 800, h = info.h || 600;
-    const cx = maxW;
-    const cy = Math.round(maxW * (h / w));
+    const aspect = w / h;
+    let cx, cy;
+    if (info.fitPage) {
+      const boxW = Math.round(7.4 * EMU), boxH = Math.round(9.8 * EMU); // slight margin inside the 7.5x10 printable area
+      if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
+      else { cy = boxH; cx = Math.round(boxH * aspect); }
+    } else {
+      const wIn = info.widthIn || 2.6;
+      cx = Math.round(wIn * EMU);
+      cy = Math.round(cx / aspect);
+    }
+    const centerIt = !!(info.fitPage || info.center);
 
     function makeDrawing() {
       drawingId += 1;
@@ -1880,8 +1911,27 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
     }
 
-    // replace every <w:t>..token..</w:t> with a fresh drawing (unique docPr id each)
-    docXml = docXml.replace(tReGlobal, function () { return makeDrawing(); });
+    if (centerIt) {
+      // center the paragraph that holds the token, then swap the token for the drawing
+      const paraRe = /<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g;
+      docXml = docXml.replace(paraRe, function (p) {
+        if (p.indexOf(marker) === -1 && p.indexOf('@@' + marker + '@@') === -1) return p;
+        let np = p;
+        // handle BOTH <w:pPr>...</w:pPr> and a self-closing <w:pPr/> (no trailing space variant too)
+        if (/<w:pPr\s*\/>/.test(np)) {
+          np = np.replace(/<w:pPr\s*\/>/, '<w:pPr><w:jc w:val="center"/></w:pPr>');
+        } else if (/<w:pPr>/.test(np)) {
+          if (!/<w:jc /.test(np)) np = np.replace('<w:pPr>', '<w:pPr><w:jc w:val="center"/>');
+        } else {
+          np = np.replace(/(<w:p(?: [^>]*)?>)/, '$1<w:pPr><w:jc w:val="center"/></w:pPr>');
+        }
+        np = np.replace(tReGlobal, function () { return makeDrawing(); });
+        return np;
+      });
+    } else {
+      // replace every <w:t>..token..</w:t> with a fresh drawing (unique docPr id each)
+      docXml = docXml.replace(tReGlobal, function () { return makeDrawing(); });
+    }
   });
 
   zip.file(DOC, docXml);
@@ -2107,16 +2157,64 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   }
   weatherReadBtn.style.display = 'none';
 
+  // Rasterize an uploaded file (image or PDF) into page images (data/w/h/ext), for
+  // inserting into Appendix C later. Images -> single page. PDFs -> one page per PDF page
+  // (via pdf.js, same approach as permit-page splitting).
+  async function rasterizeWeatherFile(file) {
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    if (isPdf) {
+      if (typeof pdfjsLib === 'undefined') return [];
+      const buf = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+      const pages = [];
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page = await pdf.getPage(p);
+        const viewport = page.getViewport({ scale: 2.0 });
+        const canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/png');
+        const bin = atob(dataUrl.split(',')[1]);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        pages.push({ data: bytes, w: canvas.width, h: canvas.height, ext: 'png' });
+      }
+      return pages;
+    }
+    // image file
+    return new Promise(function (resolve) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        const buf = new Uint8Array(reader.result);
+        const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+        const blob = new Blob([buf], { type: file.type || 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = function () {
+          resolve([{ data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) }]);
+        };
+        img.onerror = function () { resolve([]); };
+        img.src = url;
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function addWeatherFile(kind, file) {
+    const dataUrl = await readAsDataURL(file);
+    const entry = { name: file.name, mime: file.type || 'image/png', dataUrl: dataUrl, pages: [] };
+    weatherFiles[kind].push(entry);
+    renderWeatherFiles(kind);
+    updateWeatherReadVisibility();
+    entry.pages = await rasterizeWeatherFile(file); // fills in after upload; used only for Appendix C
+  }
+
   document.querySelectorAll('.wx-file-input').forEach(function (input) {
     const kind = input.dataset.kind;
     input.addEventListener('change', async function () {
-      for (const file of Array.from(input.files || [])) {
-        const dataUrl = await readAsDataURL(file);
-        weatherFiles[kind].push({ name: file.name, mime: file.type || 'image/png', dataUrl: dataUrl });
-      }
+      for (const file of Array.from(input.files || [])) await addWeatherFile(kind, file);
       input.value = '';
-      renderWeatherFiles(kind);
-      updateWeatherReadVisibility();
     });
     // drag highlight on the matching dropzone
     const drop = input.closest('.permit-drop');
@@ -2128,10 +2226,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); });
       });
       drop.addEventListener('drop', async function (e) {
-        for (const file of Array.from(e.dataTransfer.files || [])) {
-          const dataUrl = await readAsDataURL(file);
-          weatherFiles[kind].push({ name: file.name, mime: file.type || 'image/png', dataUrl: dataUrl });
-        }
+        for (const file of Array.from(e.dataTransfer.files || [])) await addWeatherFile(kind, file);
         renderWeatherFiles(kind);
         updateWeatherReadVisibility();
       });
@@ -2183,12 +2278,28 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   });
 
   const WX_COLS = [['date', 'Date'], ['loc', 'Location'], ['precip', 'Precip'], ['pkspd', 'Peak Spd'], ['pkdir', 'Peak Dir'], ['ssspd', 'Sust Spd'], ['ssdir', 'Sust Dir']];
+  // Which airports/storms are checked "include in report" -> first checked = Table 1, second = Table 2.
+  function includedIndexes(list) {
+    const idxs = [];
+    list.forEach(function (item, i) { if (item.included) idxs.push(i); });
+    return idxs;
+  }
+
   function renderWeatherResults() {
     let html = '';
+    const apIncluded = includedIndexes(weatherData.airports);
     weatherData.airports.forEach(function (ap, ai) {
       ap.days = ap.days || [];
       while (ap.days.length < 3) ap.days.push({});
-      html += '<div class="wx-result-card"><div class="wx-result-title">Airport ' + (ai + 1) + (ai === 0 ? ' — Table 1' : ' — Table 2') + '</div>';
+      // default: recommended ones pre-checked; if nothing is flagged recommended, fall back to the first two
+      if (ap.included === undefined) ap.included = ap.recommend === true || (ap.recommend === undefined && ai < 2);
+      const slot = apIncluded.indexOf(ai); // 0 = Table 1, 1 = Table 2, -1 = not included
+      const tableLabel = slot === 0 ? 'Table 1' : slot === 1 ? 'Table 2' : (ap.included ? 'not used (only 2 fill the tables)' : 'not included');
+      html += '<div class="wx-result-card"><div class="wx-result-title">' +
+        '<label class="wx-check"><input type="checkbox" data-ap-inc="' + ai + '"' + (ap.included ? ' checked' : '') + '> Include</label>' +
+        ' Airport ' + (ai + 1) + ' — ' + tableLabel +
+        (ap.recommend ? ' <span class="wx-match">recommended' + (ap.reason ? ': ' + escapeHtml(ap.reason) : '') + '</span>' : '') +
+        '</div>';
       html += '<div class="wx-ap-meta">' +
         'Name <input data-ap="' + ai + '" data-f="name" value="' + escapeAttr(ap.name || '') + '">' +
         'Tag <input data-ap="' + ai + '" data-f="tag" value="' + escapeAttr(ap.tag || '') + '" style="width:70px;">' +
@@ -2201,8 +2312,14 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       });
       html += '</table></div>';
     });
+    const stIncluded = includedIndexes(weatherData.storms);
     weatherData.storms.forEach(function (s, si) {
-      html += '<div class="wx-result-card"><div class="wx-result-title">Storm event ' + (si + 1) + (si === 0 ? ' — Table 1' : ' — Table 2') +
+      if (s.included === undefined) s.included = si < 2; // storms already arrive best-match-first
+      const slot = stIncluded.indexOf(si);
+      const tableLabel = slot === 0 ? 'Table 1' : slot === 1 ? 'Table 2' : (s.included ? 'not used (only 2 fill the tables)' : 'not included');
+      html += '<div class="wx-result-card"><div class="wx-result-title">' +
+        '<label class="wx-check"><input type="checkbox" data-storm-inc="' + si + '"' + (s.included ? ' checked' : '') + '> Include</label>' +
+        ' Storm event ' + (si + 1) + ' — ' + tableLabel +
         (s.match ? ' <span class="wx-match">' + escapeHtml(s.match) + '</span>' : '') + '</div>';
       html += '<div class="wx-storm-grid">' +
         '<label>Event</label><input data-storm="' + si + '" data-f="event" value="' + escapeAttr(s.event || '') + '">' +
@@ -2223,11 +2340,25 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     weatherResultsEl.querySelectorAll('[data-storm]').forEach(function (el) {
       el.addEventListener('input', function () { weatherData.storms[+el.dataset.storm][el.dataset.f] = el.value; });
     });
+    weatherResultsEl.querySelectorAll('[data-ap-inc]').forEach(function (el) {
+      el.addEventListener('change', function () {
+        weatherData.airports[+el.dataset.apInc].included = el.checked;
+        renderWeatherResults();
+        updateWeatherSuggestions();
+      });
+    });
+    weatherResultsEl.querySelectorAll('[data-storm-inc]').forEach(function (el) {
+      el.addEventListener('change', function () {
+        weatherData.storms[+el.dataset.stormInc].included = el.checked;
+        renderWeatherResults();
+      });
+    });
   }
 
   function updateWeatherSuggestions() {
     const items = [];
-    const ap0 = weatherData.airports[0];
+    const t1Idx = includedIndexes(weatherData.airports)[0];
+    const ap0 = t1Idx !== undefined ? weatherData.airports[t1Idx] : null;
     const dist = ap0 && ap0.distance ? parseFloat(ap0.distance) : null;
     // max recorded wind = max of peak speeds across the chosen airport's days
     let wind = null;
@@ -2880,14 +3011,18 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       };
     });
 
-    // Weather context — mapped from the AI-read + edited weatherData.
-    // Airports: [0] -> Table 1 (wx_), [1] -> Table 2 (wx2_). Storms: [0]->sed_*_1, [1]->sed_*_2.
+    // Weather context — mapped from the AI-read + edited weatherData, using only CHECKED
+    // ("Include") airports/storms. First checked -> Table 1 (wx_/sed_*_1), second -> Table 2.
     const wxMonths = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     function fmtLong(d) { return d ? (wxMonths[d.getMonth()] + ' ' + ordinal(d.getDate()) + ', ' + d.getFullYear()) : ''; }
     function ordinal(n) { const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 
-    const wxAirports = (weatherData && weatherData.airports) || [];
-    const wxStorms = (weatherData && weatherData.storms) || [];
+    const allAirports = (weatherData && weatherData.airports) || [];
+    const allStorms = (weatherData && weatherData.storms) || [];
+    const apIncIdx = includedIndexes(allAirports);   // e.g. [2, 0] — order they were checked/found in
+    const stIncIdx = includedIndexes(allStorms);
+    const wxAirports = apIncIdx.slice(0, 2).map(function (i) { return allAirports[i]; });
+    const wxStorms = stIncIdx.slice(0, 2).map(function (i) { return allStorms[i]; });
     context.wx_two = wxAirports.length >= 2;
 
     // 3-day window from the Date of Loss
@@ -2907,7 +3042,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     ['wx_t1_start','wx_t1_end','wx_t2_start','wx_t2_end','wx_county1','wx_county2','wx_airport1','wx_airport2','wx_tag1','wx_tag2'].forEach(function (k) {
       if (context[k] === undefined) context[k] = '';
     });
-    // airport table cells (wx_ = airport 0, wx2_ = airport 1)
+    // airport table cells (wx_ = Table 1 airport, wx2_ = Table 2 airport)
     [['wx', 0], ['wx2', 1]].forEach(function (pair) {
       const p = pair[0], ap = wxAirports[pair[1]];
       for (var r = 1; r <= 3; r++) {
@@ -2917,7 +3052,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         });
       }
     });
-    // storm tables (sed_*_1 = best event, sed_*_2 = next best)
+    // storm tables (sed_*_1 = Table 1 event, sed_*_2 = Table 2 event)
     [1, 2].forEach(function (n) {
       const s = wxStorms[n - 1] || {};
       context['sed_event_' + n] = s.event || '';
@@ -2925,6 +3060,22 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       context['sed_episode_' + n] = s.episode || '';
       context['sed_eventnarr_' + n] = s.eventnarr || '';
     });
+
+    // Appendix C: only the SELECTED weather documents, grouped stations -> daily summaries -> storms,
+    // each its own full page (mirrors Appendix B's permit-image pattern). A file may rasterize to
+    // more than one page (a multi-page PDF upload); flatten to one entry per page.
+    const wxAppendixFiles = [];
+    if (apIncIdx.length) { // stations sheet(s) were used to pick/verify the included airport(s)
+      weatherFiles.stations.forEach(function (f) { wxAppendixFiles.push(f); });
+    }
+    apIncIdx.slice(0, 2).forEach(function (i) { if (weatherFiles.daily_summary[i]) wxAppendixFiles.push(weatherFiles.daily_summary[i]); });
+    stIncIdx.slice(0, 2).forEach(function (i) {
+      const s = allStorms[i];
+      const srcIdx = (s && s.source_index !== undefined && s.source_index !== null) ? s.source_index : i;
+      if (weatherFiles.storm_event[srcIdx]) wxAppendixFiles.push(weatherFiles.storm_event[srcIdx]);
+    });
+    const wxAppendixPages = [];
+    wxAppendixFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
@@ -2934,6 +3085,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       docXml = buildCloseups(docXml, sectionsMeta);
       // Expand Appendix B for the permit page images (in order)
       docXml = buildPermitImages(docXml, permitPages.length);
+      // Expand Appendix C for the selected weather documents (in order)
+      docXml = buildWeatherImages(docXml, wxAppendixPages.length);
       // Technical background: keep the recognized roof section, fill DOL-1/DOL/DOL+1
       if (recognizedRoof) {
         docXml = buildTechBackground(docXml, recognizedRoof, dolDate);
@@ -2966,7 +3119,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       imageMap['IMG_LATEST'] = latestImageData || null;
       // Permit page images -> Appendix B (page-width)
       permitPages.forEach(function (pg, idx) {
-        imageMap['PERMIT_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, widthIn: 6.5 };
+        imageMap['PERMIT_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, fitPage: true };
+      });
+      // Selected weather documents -> Appendix C (page-width), grouped stations -> daily summaries -> storms
+      wxAppendixPages.forEach(function (pg, idx) {
+        imageMap['WX_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, fitPage: true };
       });
       const injectedZip = injectImagesCore(PizZip, filledBinary, imageMap);
 
