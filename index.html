@@ -2264,7 +2264,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(Object.assign({ images: images }, meta))
       });
-      if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
+      if (!resp.ok) {
+        let msg = 'Proxy returned ' + resp.status;
+        try { const ej = await resp.json(); if (ej && ej.error) msg = ej.error; } catch (e) {}
+        throw new Error(msg);
+      }
       const data = await resp.json();
       weatherData = { airports: Array.isArray(data.airports) ? data.airports : [], storms: Array.isArray(data.storms) ? data.storms : [] };
       weatherReadStatus.textContent = 'Read ' + weatherData.airports.length + ' airport(s), ' + weatherData.storms.length + ' storm event(s) — review and edit below.';
@@ -2561,7 +2565,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ media_type: pg.mime || 'image/png', image_base64: base64 })
         });
-        if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
+        if (!resp.ok) {
+          let msg = 'Proxy returned ' + resp.status;
+          try { const ej = await resp.json(); if (ej && ej.error) msg = ej.error; } catch (e) {}
+          throw new Error(msg);
+        }
         const data = await resp.json();
         if (data.any_permits) anyPermitsSeen = true;
         const permits = Array.isArray(data.permits) ? data.permits : [];
@@ -2772,7 +2780,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   fileReadBtn.addEventListener('click', async function () {
     if (!reviewDocs.length) return;
     fileReadBtn.disabled = true;
-    let done = 0, failed = 0;
+    let done = 0, failed = 0, lastFileError = '';
     for (let i = 0; i < reviewDocs.length; i++) {
       const d = reviewDocs[i];
       if (d.read) { done++; continue; }
@@ -2784,7 +2792,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filename: d.name, media_type: d.mime || 'application/octet-stream', file_base64: base64 })
         });
-        if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
+        if (!resp.ok) {
+          let msg = 'Proxy returned ' + resp.status;
+          try { const ej = await resp.json(); if (ej && ej.error) msg = ej.error; } catch (e) {}
+          throw new Error(msg);
+        }
         const data = await resp.json();
         fileRows.push({
           path: d.path || '',                  // subfolder header (from the dropped folder)
@@ -2800,11 +2812,12 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       } catch (err) {
         console.error(err);
         failed++;
+        lastFileError = err.message;
         // keep going through the rest even if one fails
       }
     }
     if (failed && !done) {
-      fileReadStatus.textContent = 'Could not reach the AI proxy — check it is running, or add documents manually.';
+      fileReadStatus.textContent = 'Reads failed: ' + (lastFileError || 'could not reach the AI proxy') + ' — check the proxy, or add documents manually.';
     } else {
       fileReadStatus.textContent = 'Read ' + done + ' document(s)' + (failed ? (', ' + failed + ' could not be read (add manually)') : '') + ' — review and edit below.';
     }
@@ -3068,7 +3081,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     if (apIncIdx.length) { // stations sheet(s) were used to pick/verify the included airport(s)
       weatherFiles.stations.forEach(function (f) { wxAppendixFiles.push(f); });
     }
-    apIncIdx.slice(0, 2).forEach(function (i) { if (weatherFiles.daily_summary[i]) wxAppendixFiles.push(weatherFiles.daily_summary[i]); });
+    apIncIdx.slice(0, 2).forEach(function (i) {
+      const ap = allAirports[i];
+      const srcIdx = (ap && ap.source_index !== undefined && ap.source_index !== null) ? ap.source_index : i;
+      if (weatherFiles.daily_summary[srcIdx]) wxAppendixFiles.push(weatherFiles.daily_summary[srcIdx]);
+    });
     stIncIdx.slice(0, 2).forEach(function (i) {
       const s = allStorms[i];
       const srcIdx = (s && s.source_index !== undefined && s.source_index !== null) ? s.source_index : i;
