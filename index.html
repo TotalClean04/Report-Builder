@@ -1111,6 +1111,38 @@
 
       <div id="weatherSuggestions"></div>
       <div id="weatherResults"></div>
+
+      <div class="field" style="margin-top:20px;">
+        <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Radar Data</label>
+        <div class="hint" style="margin-bottom:12px;">Drop up to two radar images. The app reads the date/time stamp off each image and fills its "Storm Event: … UTC" caption. Edit the time if needed.</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div>
+            <label class="permit-drop" id="radarDrop1" style="min-height:90px;">
+              <input type="file" class="radar-input" data-slot="1" accept="image/*" style="display:none;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Radar photo 1</span>
+            </label>
+            <div id="radarPreview1" class="wx-files"></div>
+            <div class="field" style="margin-top:6px;">
+              <label style="font-size:11px;">Storm Event (UTC)</label>
+              <input type="text" id="radarUtc1" placeholder="MM/DD/YYYY HH:MM UTC" autocomplete="off">
+            </div>
+          </div>
+          <div>
+            <label class="permit-drop" id="radarDrop2" style="min-height:90px;">
+              <input type="file" class="radar-input" data-slot="2" accept="image/*" style="display:none;">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Radar photo 2</span>
+            </label>
+            <div id="radarPreview2" class="wx-files"></div>
+            <div class="field" style="margin-top:6px;">
+              <label style="font-size:11px;">Storm Event (UTC)</label>
+              <input type="text" id="radarUtc2" placeholder="MM/DD/YYYY HH:MM UTC" autocomplete="off">
+            </div>
+          </div>
+        </div>
+        <span class="status" id="radarStatus"></span>
+      </div>
     </div>
 
     <div class="actions">
@@ -1632,6 +1664,53 @@
       appraiserCard.style.display = 'none';
     }
   });
+
+  // --- Opinions & Recommendations: keep the roof-type block, drop the others + editorial heading ---
+  // Blocks exist for shingle / tile / flat (no metal variant). For a matched roof, keep that block,
+  // strip its "[TYPE]" editorial bracket, and remove the "LOW WIND OPINIONS" heading. For an
+  // unmatched roof (e.g. metal) leave the section intact so it can be handled manually.
+  function buildOpinions(docXml, roof) {
+    const has = { shingle: 'shingle', tile: 'tile', flat: 'flat' };
+    function removeRegion(xml, open, close) {
+      const s = xml.indexOf(open), e = xml.indexOf(close);
+      if (s === -1 || e === -1) return xml;
+      return xml.slice(0, s) + xml.slice(e + close.length);
+    }
+    function stripComments(xml, names) {
+      names.forEach(function (n) { xml = xml.split('<!--' + n + '-->').join('').split('<!--/' + n + '-->').join(''); });
+      return xml;
+    }
+    // remove the <w:r> run that holds a "[LABEL]" editorial bracket
+    function removeBracketRun(xml, label) {
+      const t = '<w:t>' + label + '</w:t>';
+      let i = xml.indexOf(t);
+      if (i === -1) { // may carry xml:space
+        const m = xml.match(new RegExp('<w:t[^>]*>' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</w:t>'));
+        if (!m) return xml; i = xml.indexOf(m[0]);
+      }
+      const rs = xml.lastIndexOf('<w:r>', i);
+      const rs2 = xml.lastIndexOf('<w:r ', i);
+      const start = Math.max(rs, rs2);
+      const end = xml.indexOf('</w:r>', i);
+      if (start === -1 || end === -1) return xml;
+      return xml.slice(0, start) + xml.slice(end + 6);
+    }
+    if (!roof || !has[roof]) {
+      // unmatched (metal/unknown): leave blocks in place, just clear the sentinels
+      return stripComments(docXml, ['OPTITLE', 'OPSEC:shingle', 'OPSEC:tile', 'OPSEC:flat']);
+    }
+    // remove the "LOW WIND OPINIONS" editorial heading
+    docXml = removeRegion(docXml, '<!--OPTITLE-->', '<!--/OPTITLE-->');
+    // remove the two non-matching roof blocks
+    ['shingle', 'tile', 'flat'].forEach(function (t) {
+      if (t !== roof) docXml = removeRegion(docXml, '<!--OPSEC:' + t + '-->', '<!--/OPSEC:' + t + '-->');
+    });
+    // strip the "[TYPE]" bracket from the kept block's heading
+    const bracket = { shingle: '[SHINGLE]', tile: '[TILE]', flat: '[Flat WIP]' }[roof];
+    if (bracket) docXml = removeBracketRun(docXml, bracket);
+    // clear the remaining sentinels
+    return stripComments(docXml, ['OPSEC:shingle', 'OPSEC:tile', 'OPSEC:flat']);
+  }
 
   // --- Technical background: keep chosen roof section, drop others + title + subtitle, fill dates ---
   function buildTechBackground(docXml, roof, dol) {
@@ -2180,6 +2259,68 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   let recognizedRoof = '';
   let detectedCounty = ''; // set by renderAppraiserForZip from the ZIP in Address Line 2
   let propertyAerial = null; // { data, w, h, ext } for the Background-page aerial
+  const radarImages = { 1: null, 2: null }; // { data, w, h, ext } per slot; captions live in the UTC inputs
+
+  // ---- Radar Data: 2 slots, AI reads the date/time stamp off each image (like aerial imagery) ----
+  const RADAR_AI_ENDPOINT = 'http://localhost:8787/read-radar';
+  (function () {
+    const status = document.getElementById('radarStatus');
+    document.querySelectorAll('.radar-input').forEach(function (input) {
+      const slot = input.dataset.slot;
+      const drop = input.closest('.permit-drop');
+      const preview = document.getElementById('radarPreview' + slot);
+      const utcInput = document.getElementById('radarUtc' + slot);
+      async function handle(file) {
+        if (!file || !/^image\//.test(file.type)) return;
+        const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+        const reader = new FileReader();
+        reader.onload = async function () {
+          const buf = new Uint8Array(reader.result);
+          const blob = new Blob([buf], { type: file.type });
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.onload = async function () {
+            radarImages[slot] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+            preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
+              ' <span class="wx-file-x" data-slot="' + slot + '">&times;</span></div>';
+            preview.querySelector('.wx-file-x').addEventListener('click', function () {
+              radarImages[slot] = null; preview.innerHTML = ''; utcInput.value = '';
+            });
+            // AI: read the date/time stamp off the radar image and fill the caption
+            status.textContent = 'Reading radar photo ' + slot + ' date/time…';
+            try {
+              const b64 = await new Promise(function (res) {
+                const r = new FileReader(); r.onloadend = function () { res(r.result.split(',')[1]); }; r.readAsDataURL(blob);
+              });
+              const resp = await fetch(RADAR_AI_ENDPOINT, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media_type: file.type || 'image/png', image_base64: b64 })
+              });
+              if (!resp.ok) {
+                let msg = 'Proxy returned ' + resp.status;
+                try { const ej = await resp.json(); if (ej && ej.error) msg = ej.error; } catch (e) {}
+                throw new Error(msg);
+              }
+              const data = await resp.json();
+              if (data.datetime) { utcInput.value = data.datetime; status.textContent = 'Radar photo ' + slot + ' dated ' + data.datetime + ' — edit if needed.'; }
+              else { status.textContent = 'Could not read a date/time on radar photo ' + slot + ' — enter it manually.'; }
+            } catch (err) {
+              console.error(err);
+              status.textContent = 'Radar date/time read failed (' + err.message + ') — enter it manually.';
+            }
+          };
+          img.src = url;
+        };
+        reader.readAsArrayBuffer(file);
+      }
+      input.addEventListener('change', function () { handle(input.files[0]); input.value = ''; });
+      if (drop) {
+        ['dragover', 'dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
+        ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
+        drop.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); });
+      }
+    });
+  })();
 
   // ---- Property aerial (Background section, floats left of the property box) ----
   (function () {
@@ -3155,6 +3296,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     const wxAirports = apIncIdx.slice(0, 2).map(function (i) { return allAirports[i]; });
     const wxStorms = stIncIdx.slice(0, 2).map(function (i) { return allStorms[i]; });
     context.wx_two = wxAirports.length >= 2;
+    // Radar caption UTC values (blank -> caption shows just "Storm Event: ")
+    context.radar_utc_1 = (document.getElementById('radarUtc1') || {}).value || '';
+    context.radar_utc_2 = (document.getElementById('radarUtc2') || {}).value || '';
 
     // 3-day window from the Date of Loss
     if (dolDate) {
@@ -3228,6 +3372,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       if (recognizedRoof) {
         docXml = buildTechBackground(docXml, recognizedRoof, dolDate);
       }
+      // Opinions & Recommendations: keep the block matching the recognized roof type
+      docXml = buildOpinions(docXml, recognizedRoof);
       zip.file('word/document.xml', docXml);
 
       const doc = new window.docxtemplater(zip, {
@@ -3258,6 +3404,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       imageMap['IMG_PROPERTY'] = propertyAerial
         ? { data: propertyAerial.data, w: propertyAerial.w, h: propertyAerial.h, ext: propertyAerial.ext, widthIn: 3.5, anchor: { xEMU: 0, yEMU: 248822 } }
         : null;
+      // Radar photos -> page 28 radar cells (centered, fit the cell ~3.2in); captions filled from the UTC inputs
+      [1, 2].forEach(function (n) {
+        const r = radarImages[n];
+        imageMap['RADAR_IMG_' + n] = r ? { data: r.data, w: r.w, h: r.h, ext: r.ext, widthIn: 3.2, center: true } : null;
+      });
       // Permit page images -> Appendix B (page-width)
       permitPages.forEach(function (pg, idx) {
         imageMap['PERMIT_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, fitPage: true };
