@@ -992,6 +992,16 @@
         <label for="lotArea">Lot Area</label>
         <input type="text" id="lotArea" name="lotArea" placeholder="e.g. 7,200 sqft" autocomplete="off">
       </div>
+      <div class="field" style="margin-top:16px;">
+        <label>Property Aerial <span style="color:var(--ink-dim); font-weight:400;">(Background section)</span></label>
+        <div class="hint" style="margin-bottom:6px;">The location aerial that sits next to the property box on the Background page (e.g. a Google Earth view with the pin).</div>
+        <label class="permit-drop" id="propAerialDrop">
+          <input type="file" id="propAerialInput" accept="image/*" style="display:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span id="propAerialText">Drop the property aerial here, or click to add</span>
+        </label>
+        <div id="propAerialPreview" class="wx-files"></div>
+      </div>
     </div>
 
     <div class="divider"></div>
@@ -1708,6 +1718,55 @@
     return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
   }
 
+  // Collapse the weather tables to what's actually used. If fewer than 2 airports are
+  // included, the airport "Table 2" is deleted entirely (its whole floating textbox), and
+  // likewise the storm "Table 2" — no empty placeholder left behind. The intro narrative's
+  // {{#wx_two}} conditional already switches to the single-table wording.
+  function buildWeatherTables(docXml, airportCount, stormCount) {
+    function balancedEnd(xml, start, tag) {
+      const re = new RegExp('<' + tag + '(?:\\s[^>]*)?>|<\\/' + tag + '>', 'g');
+      re.lastIndex = start;
+      let depth = 0, m;
+      while ((m = re.exec(xml))) {
+        if (m[0].charAt(1) === '/') depth--; else depth++;
+        if (depth === 0) return m.index + m[0].length;
+      }
+      return -1;
+    }
+    // Remove every balanced <tag> whose inner text contains `needle`. When swallowFooter is
+    // set, a "*See Appendix C" paragraph immediately after the element is removed too.
+    function removeElements(xml, tag, needle, swallowFooter) {
+      let idx = 0, out = '';
+      while (true) {
+        const s = xml.indexOf('<' + tag, idx);
+        if (s === -1) { out += xml.slice(idx); break; }
+        const after = xml.charAt(s + 1 + tag.length);
+        if (after !== ' ' && after !== '>' && after !== '/') { out += xml.slice(idx, s + 1); idx = s + 1; continue; }
+        const e = balancedEnd(xml, s, tag);
+        if (e === -1) { out += xml.slice(idx); break; }
+        if (xml.slice(s, e).indexOf(needle) !== -1) {
+          let cut = e;
+          if (swallowFooter) {
+            const nextP = xml.indexOf('<w:p', e);
+            if (nextP !== -1 && xml.slice(e, nextP).replace(/\s/g, '') === '') {
+              const pe = balancedEnd(xml, nextP, 'w:p');
+              if (pe !== -1 && xml.slice(nextP, pe).indexOf('See Appendix C') !== -1) cut = pe;
+            }
+          }
+          out += xml.slice(idx, s);
+          idx = cut;
+        } else {
+          out += xml.slice(idx, e);
+          idx = e;
+        }
+      }
+      return out;
+    }
+    if (airportCount < 2) docXml = removeElements(docXml, 'w:drawing', 'Table 2 - Weather Data', false);
+    if (stormCount < 2) docXml = removeElements(docXml, 'w:tbl', '{{sed_event_2}}', true);
+    return docXml;
+  }
+
   // --- Repeatable close-up sections: clone + reflow empty slots ---
   // buildCloseups(docXml, sections)
   //   sections: [{ position, filled:[b,b,b,b,b,b] }, ...] in display order
@@ -1886,7 +1945,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     const aspect = w / h;
     let cx, cy;
     if (info.fitPage) {
-      const boxW = Math.round(7.4 * EMU), boxH = Math.round(9.8 * EMU); // slight margin inside the 7.5x10 printable area
+      // Fit inside the printable area (7.5x10in) AND leave room for the page-border frame
+      // and the header at the top, so a full-page portrait screenshot can't run past the
+      // bottom border. Height is the tighter constraint (header eats ~1in at the top).
+      const boxW = Math.round(7.0 * EMU), boxH = Math.round(8.6 * EMU);
       if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
       else { cy = boxH; cx = Math.round(boxH * aspect); }
     } else {
@@ -1898,6 +1960,26 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 
     function makeDrawing() {
       drawingId += 1;
+      // Anchored floating mode: pin the image at a fixed spot (used for the property
+      // aerial so it floats to the LEFT of the property box at the same height, side by
+      // side, without pushing text down). info.anchor = { xEMU, yEMU }.
+      if (info.anchor) {
+        return '<w:drawing xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
+          '<wp:anchor distT="0" distB="0" distL="114300" distR="114300" simplePos="0" relativeHeight="251659000" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">' +
+          '<wp:simplePos x="0" y="0"/>' +
+          '<wp:positionH relativeFrom="column"><wp:posOffset>' + info.anchor.xEMU + '</wp:posOffset></wp:positionH>' +
+          '<wp:positionV relativeFrom="paragraph"><wp:posOffset>' + info.anchor.yEMU + '</wp:posOffset></wp:positionV>' +
+          '<wp:extent cx="' + cx + '" cy="' + cy + '"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:wrapNone/>' +
+          '<wp:docPr id="' + drawingId + '" name="Property Aerial ' + drawingId + '"/><wp:cNvGraphicFramePr/>' +
+          '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+          '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+          '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
+          '<pic:nvPicPr><pic:cNvPr id="' + drawingId + '" name="Property Aerial ' + drawingId + '"/><pic:cNvPicPr/></pic:nvPicPr>' +
+          '<pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+          '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
+          '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
+          '</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>';
+      }
       return '<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">' +
         '<wp:extent cx="' + cx + '" cy="' + cy + '"/>' +
         '<wp:docPr id="' + drawingId + '" name="Aerial ' + marker + ' ' + drawingId + '"/>' +
@@ -1911,7 +1993,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
     }
 
-    if (centerIt) {
+    if (info.anchor) {
+      // just swap the token for the anchored drawing (no paragraph centering)
+      docXml = docXml.replace(tReGlobal, function () { return makeDrawing(); });
+    } else if (centerIt) {
       // center the paragraph that holds the token, then swap the token for the drawing
       const paraRe = /<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g;
       docXml = docXml.replace(paraRe, function (p) {
@@ -2094,6 +2179,39 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   const roofLabels = { shingle: 'Shingles', tile: 'Tile', metal: 'Metal', flat: 'Flat roof' };
   let recognizedRoof = '';
   let detectedCounty = ''; // set by renderAppraiserForZip from the ZIP in Address Line 2
+  let propertyAerial = null; // { data, w, h, ext } for the Background-page aerial
+
+  // ---- Property aerial (Background section, floats left of the property box) ----
+  (function () {
+    const input = document.getElementById('propAerialInput');
+    const drop = document.getElementById('propAerialDrop');
+    const preview = document.getElementById('propAerialPreview');
+    if (!input || !drop) return;
+    function loadFile(file) {
+      if (!file || !/^image\//.test(file.type)) return;
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const reader = new FileReader();
+      reader.onload = function () {
+        const buf = new Uint8Array(reader.result);
+        const blob = new Blob([buf], { type: file.type });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = function () {
+          propertyAerial = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+          preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
+            ' <span class="wx-file-x" id="propAerialX">&times;</span></div>';
+          const x = document.getElementById('propAerialX');
+          if (x) x.addEventListener('click', function () { propertyAerial = null; preview.innerHTML = ''; });
+        };
+        img.src = url;
+      };
+      reader.readAsArrayBuffer(file);
+    }
+    input.addEventListener('change', function () { loadFile(input.files[0]); input.value = ''; });
+    ['dragover', 'dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
+    ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
+    drop.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+  })();
   const roofCoverInput = document.getElementById('roofCoverType');
   const roofRecognizedEl = document.getElementById('roofRecognized');
   function updateRoofRecognition() {
@@ -3104,6 +3222,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       docXml = buildPermitImages(docXml, permitPages.length);
       // Expand Appendix C for the selected weather documents (in order)
       docXml = buildWeatherImages(docXml, wxAppendixPages.length);
+      // Collapse weather tables to what's used: drop airport/storm Table 2 when only 1 is included
+      docXml = buildWeatherTables(docXml, wxAirports.length, wxStorms.length);
       // Technical background: keep the recognized roof section, fill DOL-1/DOL/DOL+1
       if (recognizedRoof) {
         docXml = buildTechBackground(docXml, recognizedRoof, dolDate);
@@ -3134,6 +3254,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       });
       // ~23 technical-background spots get section 1's last-filled image
       imageMap['IMG_LATEST'] = latestImageData || null;
+      // Property aerial -> Background page, floats left of the property box (anchored, ~3.5in wide)
+      imageMap['IMG_PROPERTY'] = propertyAerial
+        ? { data: propertyAerial.data, w: propertyAerial.w, h: propertyAerial.h, ext: propertyAerial.ext, widthIn: 3.5, anchor: { xEMU: 0, yEMU: 248822 } }
+        : null;
       // Permit page images -> Appendix B (page-width)
       permitPages.forEach(function (pg, idx) {
         imageMap['PERMIT_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, fitPage: true };
