@@ -3339,10 +3339,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     // Appendix C: only the SELECTED weather documents, grouped stations -> daily summaries -> storms,
     // each its own full page (mirrors Appendix B's permit-image pattern). A file may rasterize to
     // more than one page (a multi-page PDF upload); flatten to one entry per page.
+    // Only the SELECTED airports' daily summaries + SELECTED storms' events go in — nothing else.
     const wxAppendixFiles = [];
-    if (apIncIdx.length) { // stations sheet(s) were used to pick/verify the included airport(s)
-      weatherFiles.stations.forEach(function (f) { wxAppendixFiles.push(f); });
-    }
     apIncIdx.slice(0, 2).forEach(function (i) {
       const ap = allAirports[i];
       const srcIdx = (ap && ap.source_index !== undefined && ap.source_index !== null) ? ap.source_index : i;
