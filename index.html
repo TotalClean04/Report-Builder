@@ -1104,7 +1104,12 @@
 
       <div class="field" style="margin-top:20px;">
         <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Radar Data</label>
-        <div class="hint" style="margin-bottom:12px;">Drop up to two radar images. The app reads the date/time stamp off each image and fills its "Storm Event: … UTC" caption. Edit the time if needed.</div>
+        <div class="hint" style="margin-bottom:12px;">Drop both radar images at once &mdash; they slot by the <code>radar1</code>/<code>radar2</code> in the filename. The app then reads the date/time stamp off each and fills its "Storm Event: … UTC" caption. Edit anything as needed.</div>
+        <label class="permit-drop aerial-bulk" id="radarBulkDrop" style="margin-bottom:12px;">
+          <input type="file" id="radarBulkInput" accept="image/*" multiple style="display:none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span>Drop both radar photos here</span>
+        </label>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
           <div>
             <label class="permit-drop" id="radarDrop1" style="min-height:90px;">
@@ -2301,65 +2306,96 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   let detectedCounty = ''; // set by renderAppraiserForZip from the ZIP in Address Line 2
   const radarImages = { 1: null, 2: null }; // { data, w, h, ext } per slot; captions live in the UTC inputs
 
-  // ---- Radar Data: 2 slots, AI reads the date/time stamp off each image (like aerial imagery) ----
+  // ---- Radar Data: 2 slots + a bulk drop that slots by radar1/radar2 in the filename ----
   const RADAR_AI_ENDPOINT = 'http://localhost:8787/read-radar';
   (function () {
     const status = document.getElementById('radarStatus');
+
+    // Load one file into a given slot (1 or 2): store image, preview, then AI-read its UTC stamp.
+    function loadRadar(slot, file) {
+      if (!file || !/^image\//.test(file.type)) return;
+      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
+      const preview = document.getElementById('radarPreview' + slot);
+      const utcInput = document.getElementById('radarUtc' + slot);
+      const reader = new FileReader();
+      reader.onload = async function () {
+        const buf = new Uint8Array(reader.result);
+        const blob = new Blob([buf], { type: file.type });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = async function () {
+          radarImages[slot] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+          preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
+            ' <span class="wx-file-x" data-slot="' + slot + '">&times;</span></div>';
+          preview.querySelector('.wx-file-x').addEventListener('click', function () {
+            radarImages[slot] = null; preview.innerHTML = ''; utcInput.value = '';
+          });
+          status.textContent = 'Reading radar photo ' + slot + ' date/time…';
+          try {
+            const b64 = await new Promise(function (res) {
+              const r = new FileReader(); r.onloadend = function () { res(r.result.split(',')[1]); }; r.readAsDataURL(blob);
+            });
+            const resp = await fetch(RADAR_AI_ENDPOINT, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ media_type: file.type || 'image/png', image_base64: b64 })
+            });
+            if (!resp.ok) {
+              let msg = 'Proxy returned ' + resp.status;
+              try { const ej = await resp.json(); if (ej && ej.error) msg = ej.error; } catch (e) {}
+              throw new Error(msg);
+            }
+            const data = await resp.json();
+            if (data.datetime) { utcInput.value = data.datetime; status.textContent = 'Radar photo ' + slot + ' dated ' + data.datetime + ' — edit if needed.'; }
+            else { status.textContent = 'Could not read a date/time on radar photo ' + slot + ' — enter it manually.'; }
+          } catch (err) {
+            console.error(err);
+            status.textContent = 'Radar date/time read failed (' + err.message + ') — enter it manually.';
+          }
+        };
+        img.src = url;
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // Bulk drop: slot each file by "radar1"/"radar2" in its name; anything else fills the
+    // next open slot in drop order.
+    function distributeRadar(fileList) {
+      const files = Array.from(fileList || []).filter(function (f) { return /^image\//.test(f.type); });
+      const leftover = [];
+      files.forEach(function (f) {
+        const name = f.name.toLowerCase();
+        if (/radar[\s_\-]?1(?![0-9])/.test(name)) { loadRadar(1, f); return; }
+        if (/radar[\s_\-]?2(?![0-9])/.test(name)) { loadRadar(2, f); return; }
+        leftover.push(f);
+      });
+      // fill remaining files (no radar1/radar2 in the name) into whichever slots are still empty
+      leftover.forEach(function (f) {
+        if (!radarImages[1]) loadRadar(1, f);
+        else if (!radarImages[2]) loadRadar(2, f);
+      });
+    }
+
+    // per-slot inputs (manual, one at a time)
     document.querySelectorAll('.radar-input').forEach(function (input) {
       const slot = input.dataset.slot;
       const drop = input.closest('.permit-drop');
-      const preview = document.getElementById('radarPreview' + slot);
-      const utcInput = document.getElementById('radarUtc' + slot);
-      async function handle(file) {
-        if (!file || !/^image\//.test(file.type)) return;
-        const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-        const reader = new FileReader();
-        reader.onload = async function () {
-          const buf = new Uint8Array(reader.result);
-          const blob = new Blob([buf], { type: file.type });
-          const url = URL.createObjectURL(blob);
-          const img = new Image();
-          img.onload = async function () {
-            radarImages[slot] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
-            preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
-              ' <span class="wx-file-x" data-slot="' + slot + '">&times;</span></div>';
-            preview.querySelector('.wx-file-x').addEventListener('click', function () {
-              radarImages[slot] = null; preview.innerHTML = ''; utcInput.value = '';
-            });
-            // AI: read the date/time stamp off the radar image and fill the caption
-            status.textContent = 'Reading radar photo ' + slot + ' date/time…';
-            try {
-              const b64 = await new Promise(function (res) {
-                const r = new FileReader(); r.onloadend = function () { res(r.result.split(',')[1]); }; r.readAsDataURL(blob);
-              });
-              const resp = await fetch(RADAR_AI_ENDPOINT, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ media_type: file.type || 'image/png', image_base64: b64 })
-              });
-              if (!resp.ok) {
-                let msg = 'Proxy returned ' + resp.status;
-                try { const ej = await resp.json(); if (ej && ej.error) msg = ej.error; } catch (e) {}
-                throw new Error(msg);
-              }
-              const data = await resp.json();
-              if (data.datetime) { utcInput.value = data.datetime; status.textContent = 'Radar photo ' + slot + ' dated ' + data.datetime + ' — edit if needed.'; }
-              else { status.textContent = 'Could not read a date/time on radar photo ' + slot + ' — enter it manually.'; }
-            } catch (err) {
-              console.error(err);
-              status.textContent = 'Radar date/time read failed (' + err.message + ') — enter it manually.';
-            }
-          };
-          img.src = url;
-        };
-        reader.readAsArrayBuffer(file);
-      }
-      input.addEventListener('change', function () { handle(input.files[0]); input.value = ''; });
+      input.addEventListener('change', function () { loadRadar(slot, input.files[0]); input.value = ''; });
       if (drop) {
         ['dragover', 'dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
         ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
-        drop.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); });
+        drop.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) loadRadar(slot, e.dataTransfer.files[0]); });
       }
     });
+
+    // bulk drop zone
+    const bulkInput = document.getElementById('radarBulkInput');
+    const bulkDrop = document.getElementById('radarBulkDrop');
+    if (bulkInput && bulkDrop) {
+      bulkInput.addEventListener('change', function () { distributeRadar(bulkInput.files); bulkInput.value = ''; });
+      ['dragover', 'dragenter'].forEach(function (ev) { bulkDrop.addEventListener(ev, function (e) { e.preventDefault(); bulkDrop.classList.add('drag'); }); });
+      ['dragleave', 'dragend', 'drop'].forEach(function (ev) { bulkDrop.addEventListener(ev, function (e) { e.preventDefault(); bulkDrop.classList.remove('drag'); }); });
+      bulkDrop.addEventListener('drop', function (e) { if (e.dataTransfer.files && e.dataTransfer.files.length) distributeRadar(e.dataTransfer.files); });
+    }
   })();
 
   const roofCoverInput = document.getElementById('roofCoverType');
