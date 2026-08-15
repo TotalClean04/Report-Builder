@@ -526,6 +526,7 @@
   .wx-result-card { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 12px; background: rgba(148,163,187,0.04); }
   .wx-result-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
   .wx-match { font-weight: 400; font-size: 11px; color: var(--orange); }
+  input.range-bad { border-color: #e5484d; background: rgba(229,72,77,0.08); }
   .wx-check { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; font-size: 12px; color: var(--ink-dim); margin-right: 8px; }
   .wx-check input { width: auto; margin: 0; }
   .wx-ap-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; }
@@ -1837,7 +1838,16 @@
       return out;
     }
     if (airportCount < 2) docXml = removeElements(docXml, 'w:drawing', 'Table 2 - Weather Data', false);
-    if (stormCount < 2) docXml = removeElements(docXml, 'w:tbl', '{{sed_event_2}}', true);
+    if (stormCount === 0) {
+      // No storm events at all -> delete the entire Storm Events Database section
+      const s = docXml.indexOf('<!--STORMSEC_START-->');
+      const e = docXml.indexOf('<!--STORMSEC_END-->');
+      if (s !== -1 && e !== -1) docXml = docXml.slice(0, s) + docXml.slice(e + '<!--STORMSEC_END-->'.length);
+    } else {
+      // clear the section sentinels, then collapse Table 2 if only one storm
+      docXml = docXml.split('<!--STORMSEC_START-->').join('').split('<!--STORMSEC_END-->').join('');
+      if (stormCount < 2) docXml = removeElements(docXml, 'w:tbl', '{{sed_event_2}}', true);
+    }
     return docXml;
   }
 
@@ -2308,6 +2318,20 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 
   // ---- Radar Data: 2 slots + a bulk drop that slots by radar1/radar2 in the filename ----
   const RADAR_AI_ENDPOINT = 'http://localhost:8787/read-radar';
+  // Warn if a radar date/time is not within +-7 days of the Date of Loss.
+  function radarRangeWarning(dtStr) {
+    const dolEl = document.querySelector('[name="dateOfLoss"]');
+    const dol = dolEl && dolEl.value ? new Date(dolEl.value) : null;
+    const m = (dtStr || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!dol || isNaN(dol.getTime()) || !m) return ''; // can't check -> no warning
+    const rd = new Date(parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+    const days = Math.round((rd - dol) / 86400000);
+    if (Math.abs(days) > 7) {
+      return 'Discrepancy: this radar date is ' + Math.abs(days) + ' days ' + (days > 0 ? 'after' : 'before') +
+             ' the date of loss (outside the \u00b17-day window). Verify it matches the storm event.';
+    }
+    return '';
+  }
   (function () {
     const status = document.getElementById('radarStatus');
 
@@ -2345,7 +2369,18 @@ function injectImagesCore(PizZipCtor, docxData, images) {
               throw new Error(msg);
             }
             const data = await resp.json();
-            if (data.datetime) { utcInput.value = data.datetime; status.textContent = 'Radar photo ' + slot + ' dated ' + data.datetime + ' — edit if needed.'; }
+            if (data.datetime) {
+              utcInput.value = data.datetime;
+              // Verify the radar date is within +-7 days of the Date of Loss
+              const warn = radarRangeWarning(data.datetime);
+              if (warn) {
+                utcInput.classList.add('range-bad');
+                status.textContent = 'Radar photo ' + slot + ' dated ' + data.datetime + ' — \u26a0 ' + warn;
+              } else {
+                utcInput.classList.remove('range-bad');
+                status.textContent = 'Radar photo ' + slot + ' dated ' + data.datetime + ' — edit if needed.';
+              }
+            }
             else { status.textContent = 'Could not read a date/time on radar photo ' + slot + ' — enter it manually.'; }
           } catch (err) {
             console.error(err);
@@ -2396,6 +2431,17 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       ['dragleave', 'dragend', 'drop'].forEach(function (ev) { bulkDrop.addEventListener(ev, function (e) { e.preventDefault(); bulkDrop.classList.remove('drag'); }); });
       bulkDrop.addEventListener('drop', function (e) { if (e.dataTransfer.files && e.dataTransfer.files.length) distributeRadar(e.dataTransfer.files); });
     }
+
+    // Manual edits to the UTC captions re-check the +-7-day range
+    ['radarUtc1', 'radarUtc2'].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('input', function () {
+        const warn = radarRangeWarning(el.value);
+        if (warn) { el.classList.add('range-bad'); document.getElementById('radarStatus').textContent = '\u26a0 ' + warn; }
+        else { el.classList.remove('range-bad'); }
+      });
+    });
   })();
 
   const roofCoverInput = document.getElementById('roofCoverType');
@@ -2659,6 +2705,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       el.addEventListener('change', function () {
         weatherData.storms[+el.dataset.stormInc].included = el.checked;
         renderWeatherResults();
+        updateWeatherSuggestions();
       });
     });
   }
@@ -2676,6 +2723,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     }
     if (wind !== null && wind < 40) {
       items.push('<strong>Extra weather suggested.</strong> Recorded peak winds are ' + wind + ' mph (&lt; 40 mph) &mdash; consider adding extra weather data (a second airport or storm-event source).');
+    }
+    // No storm events included -> the Storm Events Database section will be removed; suggest extra weather
+    const stormsIncluded = includedIndexes(weatherData.storms).length;
+    if (weatherData.airports.length && stormsIncluded === 0) {
+      items.push('<strong>Extra weather suggested.</strong> No storm events are included &mdash; the Storm Events Database section will be removed. Consider adding extra weather data (a storm-event source or a second airport).');
     }
     weatherSuggestionsEl.innerHTML = items.map(function (t) {
       return '<div class="wx-suggest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg><span>' + t + '</span></div>';
