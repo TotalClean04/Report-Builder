@@ -992,23 +992,13 @@
         <label for="lotArea">Lot Area</label>
         <input type="text" id="lotArea" name="lotArea" placeholder="e.g. 7,200 sqft" autocomplete="off">
       </div>
-      <div class="field" style="margin-top:16px;">
-        <label>Property Aerial <span style="color:var(--ink-dim); font-weight:400;">(Background section)</span></label>
-        <div class="hint" style="margin-bottom:6px;">The location aerial that sits next to the property box on the Background page (e.g. a Google Earth view with the pin).</div>
-        <label class="permit-drop" id="propAerialDrop">
-          <input type="file" id="propAerialInput" accept="image/*" style="display:none;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span id="propAerialText">Drop the property aerial here, or click to add</span>
-        </label>
-        <div id="propAerialPreview" class="wx-files"></div>
-      </div>
     </div>
 
     <div class="divider"></div>
 
     <div class="field">
       <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Close-up Aerial Imagery</label>
-      <div class="hint" style="margin-bottom:14px;">Each section is a 6-image close-up grid with its own source. Upload an image and enter its date for each slot. Empty slots are left blank.</div>
+      <div class="hint" style="margin-bottom:14px;">Each section is a 6-image close-up grid with its own source. Drop all your aerials at once and they sort oldest&rarr;newest into slots 1&ndash;6 by their <code>YY_MMDD</code> date &mdash; or fill any slot individually. The newest image also becomes the Background-page property aerial. Empty slots are left blank.</div>
       <div id="closeupSections"></div>
       <button type="button" id="addCloseup" class="add-btn" style="margin-top:4px;">+ Add another close-up imagery</button>
     </div>
@@ -2120,6 +2110,36 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     if (month < 1 || month > 12 || day < 1 || day > 31) return '';
     return mm + '/' + dd + '/20' + m[1];
   }
+  // MM/DD/YYYY -> sortable number (0 if unparseable)
+  function dateSortNum(mdy) {
+    const m = (mdy || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (!m) return 0;
+    return parseInt(m[3], 10) * 10000 + parseInt(m[1], 10) * 100 + parseInt(m[2], 10);
+  }
+
+  // Drop many aerials at once: sort oldest->newest by their YY_MMDD date and lay them
+  // into slots 1..6 in that order (slot 1 = earliest). Undated files go last, in drop order.
+  function distributeAerials(sectionEl, sec, fileList) {
+    const files = Array.from(fileList || []).filter(function (f) { return /^image\//.test(f.type); });
+    if (!files.length) return;
+    const items = files.map(function (f) { return { file: f, date: parseDateFromFilename(f.name) }; });
+    items.sort(function (a, b) {
+      const na = dateSortNum(a.date), nb = dateSortNum(b.date);
+      if (na === 0 && nb === 0) return 0;
+      if (na === 0) return 1;      // undated last
+      if (nb === 0) return -1;
+      return na - nb;              // oldest first
+    });
+    items.slice(0, 6).forEach(function (it, idx) {
+      const n = idx + 1;
+      const input = sectionEl.querySelector('input[data-aerial="' + n + '"]');
+      if (!input) return;
+      const slot = input.closest('.aerial-slot');
+      const dateInput = sectionEl.querySelector('.aerial-date[data-date="' + n + '"]');
+      if (dateInput) dateInput.value = it.date || '';   // set date explicitly so ordering is visible
+      processAerialFile(slot, input, sec, n, it.file);
+    });
+  }
 
   function sectionMarkup(sec) {
     let cells = '';
@@ -2144,6 +2164,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           '<input type="text" class="aerial-source" data-sec="' + sec + '" placeholder="e.g. Google Earth Pro" autocomplete="off">' +
           '<div class="hint">Fills &ldquo;Obtained From:&rdquo; for this section&rsquo;s images</div>' +
         '</div>' +
+        '<label class="permit-drop aerial-bulk" data-sec="' + sec + '" style="margin-bottom:12px;">' +
+          '<input type="file" class="aerial-bulk-input" data-sec="' + sec + '" accept="image/*" multiple style="display:none;">' +
+          '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+          '<span>Drop all aerials here &mdash; sorted oldest&rarr;newest into slots 1&ndash;6 by their <code>YY_MMDD</code> date</span>' +
+        '</label>' +
         '<div class="aerial-grid">' + cells + '</div>' +
       '</div>';
   }
@@ -2189,6 +2214,22 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 
   function wireSection(sectionEl) {
     const sec = sectionEl.getAttribute('data-section');
+    // Bulk drop zone: distribute many aerials into slots 1-6 by date
+    const bulk = sectionEl.querySelector('.aerial-bulk');
+    const bulkInput = sectionEl.querySelector('.aerial-bulk-input');
+    if (bulk && bulkInput) {
+      bulkInput.addEventListener('change', function () { distributeAerials(sectionEl, sec, bulkInput.files); bulkInput.value = ''; });
+      ['dragenter', 'dragover'].forEach(function (evt) {
+        bulk.addEventListener(evt, function (e) { e.preventDefault(); e.stopPropagation(); bulk.classList.add('drag'); });
+      });
+      ['dragleave', 'dragend', 'drop'].forEach(function (evt) {
+        bulk.addEventListener(evt, function (e) { e.preventDefault(); e.stopPropagation(); bulk.classList.remove('drag'); });
+      });
+      bulk.addEventListener('drop', function (e) {
+        const files = e.dataTransfer && e.dataTransfer.files;
+        if (files && files.length) distributeAerials(sectionEl, sec, files);
+      });
+    }
     sectionEl.querySelectorAll('input[data-aerial]').forEach(function (input) {
       const slot = input.closest('.aerial-slot');
       const n = input.getAttribute('data-aerial');
@@ -2258,7 +2299,6 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   const roofLabels = { shingle: 'Shingles', tile: 'Tile', metal: 'Metal', flat: 'Flat roof' };
   let recognizedRoof = '';
   let detectedCounty = ''; // set by renderAppraiserForZip from the ZIP in Address Line 2
-  let propertyAerial = null; // { data, w, h, ext } for the Background-page aerial
   const radarImages = { 1: null, 2: null }; // { data, w, h, ext } per slot; captions live in the UTC inputs
 
   // ---- Radar Data: 2 slots, AI reads the date/time stamp off each image (like aerial imagery) ----
@@ -2322,37 +2362,6 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     });
   })();
 
-  // ---- Property aerial (Background section, floats left of the property box) ----
-  (function () {
-    const input = document.getElementById('propAerialInput');
-    const drop = document.getElementById('propAerialDrop');
-    const preview = document.getElementById('propAerialPreview');
-    if (!input || !drop) return;
-    function loadFile(file) {
-      if (!file || !/^image\//.test(file.type)) return;
-      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-      const reader = new FileReader();
-      reader.onload = function () {
-        const buf = new Uint8Array(reader.result);
-        const blob = new Blob([buf], { type: file.type });
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = function () {
-          propertyAerial = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
-          preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
-            ' <span class="wx-file-x" id="propAerialX">&times;</span></div>';
-          const x = document.getElementById('propAerialX');
-          if (x) x.addEventListener('click', function () { propertyAerial = null; preview.innerHTML = ''; });
-        };
-        img.src = url;
-      };
-      reader.readAsArrayBuffer(file);
-    }
-    input.addEventListener('change', function () { loadFile(input.files[0]); input.value = ''; });
-    ['dragover', 'dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
-    ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
-    drop.addEventListener('drop', function (e) { if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
-  })();
   const roofCoverInput = document.getElementById('roofCoverType');
   const roofRecognizedEl = document.getElementById('roofRecognized');
   function updateRoofRecognition() {
@@ -3398,9 +3407,18 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       });
       // ~23 technical-background spots get section 1's last-filled image
       imageMap['IMG_LATEST'] = latestImageData || null;
-      // Property aerial -> Background page, floats left of the property box (anchored, ~3.5in wide)
-      imageMap['IMG_PROPERTY'] = propertyAerial
-        ? { data: propertyAerial.data, w: propertyAerial.w, h: propertyAerial.h, ext: propertyAerial.ext, widthIn: 3.5, anchor: { xEMU: 0, yEMU: 248822 } }
+      // Property aerial (Background page, floats left of the property box) = section 1's
+      // NEWEST-dated aerial (slot 6 when all filled). Same picture already used in the grid.
+      let propNewest = null, propNewestNum = -1;
+      for (let s = 1; s <= 6; s++) {
+        const stored = aerialImages['1_' + s];
+        if (!stored) continue;
+        const di = document.querySelector('.aerial-date[data-sec="1"][data-date="' + s + '"]');
+        const dnum = di && di.value ? dateSortNum(di.value) : 0;
+        if (dnum >= propNewestNum) { propNewestNum = dnum; propNewest = stored; }
+      }
+      imageMap['IMG_PROPERTY'] = propNewest
+        ? { data: propNewest.data, w: propNewest.w, h: propNewest.h, ext: propNewest.ext, widthIn: 3.5, anchor: { xEMU: 0, yEMU: 248822 } }
         : null;
       // Radar photos -> page 28 radar cells (centered, fit the cell ~3.2in); captions filled from the UTC inputs
       [1, 2].forEach(function (n) {
