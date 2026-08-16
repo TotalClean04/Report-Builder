@@ -527,6 +527,7 @@
   .wx-result-title { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
   .wx-match { font-weight: 400; font-size: 11px; color: var(--orange); }
   input.range-bad { border-color: #e5484d; background: rgba(229,72,77,0.08); }
+  .wx-baddate { font-weight: 600; font-size: 11px; color: #e5484d; }
   .wx-check { display: inline-flex; align-items: center; gap: 4px; font-weight: 400; font-size: 12px; color: var(--ink-dim); margin-right: 8px; }
   .wx-check input { width: auto; margin: 0; }
   .wx-ap-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); margin-bottom: 8px; }
@@ -1062,6 +1063,8 @@
       <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Weather Data</label>
       <div class="hint" style="margin-bottom:14px;">Drop the NOAA documents below (PDF, PNG, or JPG). The app reads them with AI, records the 3 days around the date of loss, and fills the airport and storm tables. You can edit every value before generating.</div>
 
+      <div class="hint" style="margin-top:-6px; margin-bottom:14px;">Policy-period and first-damage-inspection dates are read in the background from the uploaded File Review documents when available. Read those documents before reading weather data.</div>
+
       <div class="field">
         <label>Airport Stations <span style="color:var(--ink-dim); font-weight:400;">(list of nearby stations)</span></label>
         <div class="hint" style="margin-bottom:6px;">Used to pick the closest airport with usable data and read its distance from the property.</div>
@@ -1086,7 +1089,7 @@
 
       <div class="field">
         <label>Storm Events <span style="color:var(--ink-dim); font-weight:400;">(Storm Events Database)</span></label>
-        <div class="hint" style="margin-bottom:6px;">The AI picks the event most related to the cause of loss and closest to the property (by ZIP/county) for Table 1, and the next best for Table 2 &mdash; all left for your review.</div>
+        <div class="hint" style="margin-bottom:6px;">The AI ranks uploaded SED records using the policy period, Date of Loss, cause of loss, first documented damage inspection, and county proximity. It flags uncertain or unsupported selections for review; only the checked event's matching source page enters Appendix C.</div>
         <label class="permit-drop" id="wxStormDrop">
           <input type="file" class="wx-file-input" data-kind="storm_event" accept="image/*,application/pdf" multiple style="display:none;">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -2589,11 +2592,38 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     const causes = Array.from(document.querySelectorAll('[name="causeOfLoss"]:checked')).map(function (c) { return c.value; });
     const addr2 = (document.getElementById('addressLine2') || {}).value || '';
     const zipM = addr2.match(/\b(\d{5})\b/);
+    function mdy(value) {
+      if (!value) return '';
+      const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      return m ? (m[2] + '/' + m[3] + '/' + m[1]) : value;
+    }
+    // File Review AI classifies readable policy and inspection documents. This
+    // information stays in the background and guides weather selection.
+    const policyRecords = fileRows.filter(function (r) {
+      return r.document_kind === 'policy' && (r.policy_start || r.policy_end);
+    }).map(function (r) {
+      return { start: r.policy_start || '', end: r.policy_end || '', origin: r.origin || '', filename: r.filename || '' };
+    });
+    const inspectionRecords = fileRows.filter(function (r) {
+      return r.document_kind === 'inspection' && r.inspection_date;
+    }).map(function (r) {
+      return { date: r.inspection_date, origin: r.origin || '', filename: r.filename || '' };
+    });
+    const datedInspections = inspectionRecords.map(function (r) { return r.date; }).filter(Boolean).sort(function (a, b) {
+      const pa = a.split('/'), pb = b.split('/');
+      return new Date(pa[2], pa[0] - 1, pa[1]) - new Date(pb[2], pb[0] - 1, pb[1]);
+    });
+    const primaryPolicy = policyRecords.length === 1 ? policyRecords[0] : {};
     return {
-      date_of_loss: dolEl ? dolEl.value : '',
+      date_of_loss: mdy(dolEl ? dolEl.value : ''),
       cause_of_loss: causes.join(', '),
       zip: zipM ? zipM[1] : '',
-      county: detectedCounty || ''
+      county: detectedCounty || '',
+      policy_start: primaryPolicy.start || '',
+      policy_end: primaryPolicy.end || '',
+      first_damage_inspection: datedInspections[0] || '',
+      policy_records: policyRecords,
+      inspection_records: inspectionRecords
     };
   }
 
@@ -2620,7 +2650,14 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         throw new Error(msg);
       }
       const data = await resp.json();
-      weatherData = { airports: Array.isArray(data.airports) ? data.airports : [], storms: Array.isArray(data.storms) ? data.storms : [] };
+      weatherData = {
+        airports: Array.isArray(data.airports) ? data.airports : [],
+        storms: Array.isArray(data.storms) ? data.storms : [],
+        review_required: !!data.review_required,
+        review_reason: data.review_reason || ''
+      };
+      weatherData.airports.forEach(function (a) { if (a.source_index !== undefined) a.source_index = Number(a.source_index); });
+      weatherData.storms.forEach(function (s) { if (s.source_index !== undefined) s.source_index = Number(s.source_index); });
       weatherReadStatus.textContent = 'Read ' + weatherData.airports.length + ' airport(s), ' + weatherData.storms.length + ' storm event(s) — review and edit below.';
       renderWeatherResults();
       updateWeatherSuggestions();
@@ -2645,14 +2682,17 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     weatherData.airports.forEach(function (ap, ai) {
       ap.days = ap.days || [];
       while (ap.days.length < 3) ap.days.push({});
-      // default: recommended ones pre-checked; if nothing is flagged recommended, fall back to the first two
-      if (ap.included === undefined) ap.included = ap.recommend === true || (ap.recommend === undefined && ai < 2);
+      // default: recommended ones pre-checked; if nothing is flagged recommended, fall back to the first two.
+      // Never auto-include an airport whose Daily Summary is for the wrong dates.
+      if (ap.included === undefined) ap.included = ap.date_ok !== false && (ap.recommend === true || (ap.recommend === undefined && ai < 2));
       const slot = apIncluded.indexOf(ai); // 0 = Table 1, 1 = Table 2, -1 = not included
       const tableLabel = slot === 0 ? 'Table 1' : slot === 1 ? 'Table 2' : (ap.included ? 'not used (only 2 fill the tables)' : 'not included');
       html += '<div class="wx-result-card"><div class="wx-result-title">' +
         '<label class="wx-check"><input type="checkbox" data-ap-inc="' + ai + '"' + (ap.included ? ' checked' : '') + '> Include</label>' +
         ' Airport ' + (ai + 1) + ' — ' + tableLabel +
         (ap.recommend ? ' <span class="wx-match">recommended' + (ap.reason ? ': ' + escapeHtml(ap.reason) : '') + '</span>' : '') +
+        (ap.date_ok === false ? ' <span class="wx-baddate">\u26a0 wrong date for data' +
+          (ap.covered_range ? ' — this document covers ' + escapeHtml(ap.covered_range) : '') + '</span>' : '') +
         '</div>';
       html += '<div class="wx-ap-meta">' +
         'Name <input data-ap="' + ai + '" data-f="name" value="' + escapeAttr(ap.name || '') + '">' +
@@ -2666,15 +2706,21 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       });
       html += '</table></div>';
     });
+    weatherData.storms.forEach(function (s, si) {
+      if (s.included === undefined) s.included = s.eligible !== false && !s.review_required && Number.isInteger(s.source_index) && si < 2;
+    });
     const stIncluded = includedIndexes(weatherData.storms);
     weatherData.storms.forEach(function (s, si) {
-      if (s.included === undefined) s.included = si < 2; // storms already arrive best-match-first
+      // A flagged, ineligible, or untraceable event is never silently added to
+      // the report. The reviewer may still explicitly check it after review.
       const slot = stIncluded.indexOf(si);
       const tableLabel = slot === 0 ? 'Table 1' : slot === 1 ? 'Table 2' : (s.included ? 'not used (only 2 fill the tables)' : 'not included');
       html += '<div class="wx-result-card"><div class="wx-result-title">' +
         '<label class="wx-check"><input type="checkbox" data-storm-inc="' + si + '"' + (s.included ? ' checked' : '') + '> Include</label>' +
         ' Storm event ' + (si + 1) + ' — ' + tableLabel +
-        (s.match ? ' <span class="wx-match">' + escapeHtml(s.match) + '</span>' : '') + '</div>';
+        (s.match ? ' <span class="wx-match">' + escapeHtml(s.match) + '</span>' : '') +
+        ((s.review_required || s.eligible === false || !Number.isInteger(s.source_index)) ? ' <span class="wx-baddate">⚠ Review required' +
+          (s.review_reason ? ' — ' + escapeHtml(s.review_reason) : (!Number.isInteger(s.source_index) ? ' — matching SED source page is unknown' : '')) + '</span>' : '') + '</div>';
       html += '<div class="wx-storm-grid">' +
         '<label>Event</label><input data-storm="' + si + '" data-f="event" value="' + escapeAttr(s.event || '') + '">' +
         '<label>County/Area</label><input data-storm="' + si + '" data-f="county" value="' + escapeAttr(s.county || '') + '">' +
@@ -2722,7 +2768,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       items.push('<strong>Hailpoint suggested.</strong> The chosen airport is ~' + dist + ' mi from the property (&ge; 7 mi) &mdash; consider running Hailpoint for hail data closer to the site.');
     }
     if (wind !== null && wind < 40) {
-      items.push('<strong>Extra weather suggested.</strong> Recorded peak winds are ' + wind + ' mph (&lt; 40 mph) &mdash; consider adding extra weather data (a second airport or storm-event source).');
+      items.push('<strong>Weather Guidance required.</strong> Recorded peak winds are ' + wind + ' mph (&lt; 40 mph). Run Weather Guidance / engineer review and add supporting weather evidence before relying on the airport reading alone.');
+    }
+    if (weatherData.review_required) {
+      items.push('<strong>Storm-data review required.</strong> ' + escapeHtml(weatherData.review_reason || 'The uploaded storm data is not recognizable or cannot be matched defensibly to this case.') + '');
     }
     // No storm events included -> the Storm Events Database section will be removed; suggest extra weather
     const stormsIncluded = includedIndexes(weatherData.storms).length;
@@ -2911,6 +2960,12 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     permitReadBtn.disabled = true;
     let added = 0;
     let anyPermitsSeen = false; // did any page list ANY permit record (even irrelevant)?
+    let wrongAddr = '';         // set to the mismatched address if a page is for a different property
+    // Subject property address from the intake fields (used to verify the permit belongs here)
+    const propAddr = [
+      (document.getElementById('addressLine1') || {}).value || '',
+      (document.getElementById('addressLine2') || {}).value || ''
+    ].filter(Boolean).join(', ') || ((document.getElementById('propertyAddress') || {}).value || '');
     for (let i = 0; i < permitPages.length; i++) {
       permitReadStatus.textContent = 'Reading page ' + (i + 1) + ' of ' + permitPages.length + '…';
       const pg = permitPages[i];
@@ -2919,7 +2974,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         const resp = await fetch(PERMIT_AI_ENDPOINT, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ media_type: pg.mime || 'image/png', image_base64: base64 })
+          body: JSON.stringify({ media_type: pg.mime || 'image/png', image_base64: base64, property_address: propAddr })
         });
         if (!resp.ok) {
           let msg = 'Proxy returned ' + resp.status;
@@ -2928,6 +2983,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         }
         const data = await resp.json();
         if (data.any_permits) anyPermitsSeen = true;
+        if (data.address_ok === false && !wrongAddr) wrongAddr = data.address_note || 'a different property';
         const permits = Array.isArray(data.permits) ? data.permits : [];
         permits.forEach(function (p) {
           permitRows.push({
@@ -2955,6 +3011,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       permitReadStatus.textContent = 'No relevant permit information found.';
     } else {
       permitReadStatus.textContent = 'No permits found.';
+    }
+    // Address mismatch overrides the message — the records are for the wrong property
+    if (wrongAddr) {
+      permitReadStatus.innerHTML = '<span class="wx-baddate">\u26a0 Wrong permit history — this document is for ' +
+        escapeHtml(wrongAddr) + ', not the subject property. Re-run permit history with the correct records.</span>';
     }
     permitReadBtn.disabled = false;
     renderPermitList();
@@ -3085,7 +3146,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   });
 
   // ---- Editable document list ----
-  // fileRows: [{ filename, origin, dated, photos }]
+  // fileRows also retain AI-only policy/inspection metadata for weather ranking.
   const fileRows = [];
 
   function renderFileList() {
@@ -3118,7 +3179,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   }
 
   addFileBtn.addEventListener('click', function () {
-    fileRows.push({ path: '', filename: '', origin: '', dated: '', photos: '' });
+    fileRows.push({ path: '', filename: '', origin: '', dated: '', photos: '', document_kind: 'other', policy_start: '', policy_end: '', inspection_date: '' });
     renderFileList();
   });
 
@@ -3159,7 +3220,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           filename: data.filename || d.name,   // fall back to the real file name
           origin: data.origin || '',
           dated: data.dated || '',
-          photos: data.photos || ''
+          photos: data.photos || '',
+          document_kind: data.document_kind || 'other',
+          policy_start: data.policy_start || '',
+          policy_end: data.policy_end || '',
+          inspection_date: data.inspection_date || ''
         });
         d.read = true;
         done++;
@@ -3392,6 +3457,14 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     const stIncIdx = includedIndexes(allStorms);
     const wxAirports = apIncIdx.slice(0, 2).map(function (i) { return allAirports[i]; });
     const wxStorms = stIncIdx.slice(0, 2).map(function (i) { return allStorms[i]; });
+    const unmappedStorm = wxStorms.find(function (s) {
+      return !s || !Number.isInteger(s.source_index) || !weatherFiles.storm_event[s.source_index];
+    });
+    if (unmappedStorm) {
+      status.textContent = 'Selected storm event has no matching uploaded SED source page. Review the storm data before generating the report.';
+      status.classList.remove('ok');
+      return;
+    }
     context.wx_two = wxAirports.length >= 2;
     // Radar caption UTC values (blank -> caption shows just "Storm Event: ")
     context.radar_utc_1 = (document.getElementById('radarUtc1') || {}).value || '';
@@ -3445,7 +3518,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     });
     stIncIdx.slice(0, 2).forEach(function (i) {
       const s = allStorms[i];
-      const srcIdx = (s && s.source_index !== undefined && s.source_index !== null) ? s.source_index : i;
+      // Never fall back to ranking position: that could append a different SED
+      // page than the one the reviewer selected. A storm needs an exact source.
+      const srcIdx = s && Number.isInteger(s.source_index) ? s.source_index : -1;
       if (weatherFiles.storm_event[srcIdx]) wxAppendixFiles.push(weatherFiles.storm_event[srcIdx]);
     });
     const wxAppendixPages = [];
