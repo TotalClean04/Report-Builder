@@ -2054,6 +2054,12 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       const boxW = Math.round(7.0 * EMU), boxH = Math.round(8.6 * EMU);
       if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
       else { cy = boxH; cx = Math.round(boxH * aspect); }
+    } else if (info.fitBox) {
+      // Contain: scale up or down while preserving the complete image. This is
+      // used by Appendix A's fixed two-column photo cells, so nothing is cropped.
+      const boxW = Math.round((info.fitBox.w || 3.1) * EMU), boxH = Math.round((info.fitBox.h || 2.15) * EMU);
+      if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
+      else { cy = boxH; cx = Math.round(boxH * aspect); }
     } else {
       const wIn = info.widthIn || 2.6;
       cx = Math.round(wIn * EMU);
@@ -3601,7 +3607,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       const filledBinary = doc.getZip().generate({ type: 'uint8array' });
 
       const imageMap = {};
-      appendixASections.filter(function(sec){return sec.photos.filter(Boolean).length;}).forEach(function (sec, ai) { sec.photos.filter(Boolean).forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = p; }); });
+      appendixASections.filter(function(sec){return sec.photos.filter(Boolean).length;}).forEach(function (sec, ai) { sec.photos.filter(Boolean).forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = Object.assign({}, p, { fitBox: { w: 3.05, h: 2.15 }, center: true }); }); });
       sectionEls.forEach(function (el, idx) {
         const sec = el.getAttribute('data-section');
         const position = idx + 1;
