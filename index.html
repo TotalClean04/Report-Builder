@@ -1107,6 +1107,13 @@
       <div id="weatherResults"></div>
 
       <div class="field" style="margin-top:20px;">
+        <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600;">Appendix A — Photo Documentation</label>
+        <div class="hint">Drop up to 60 photos in Appendix A-1. Add another appendix only when needed. Empty appendices and unused photo slots are removed from the report.</div>
+        <div id="appendixASections"></div>
+        <button type="button" id="addAppendixABtn" class="add-btn" style="margin-top:10px;">+ Add Appendix A</button>
+      </div>
+
+      <div class="field" style="margin-top:20px;">
         <label style="font-size:13px; color:var(--ink); text-transform:none; letter-spacing:0; font-weight:600; margin-bottom:6px;">Radar Data</label>
         <div class="hint" style="margin-bottom:12px;">Drop both radar images at once &mdash; they slot by the <code>radar1</code>/<code>radar2</code> in the filename. The app then reads the date/time stamp off each and fills its "Storm Event: … UTC" caption. Edit anything as needed.</div>
         <label class="permit-drop aerial-bulk" id="radarBulkDrop" style="margin-bottom:12px;">
@@ -1794,6 +1801,14 @@
       assembled += base.replace('@@WX_IMG_1@@', '@@WX_IMG_' + n + '@@');
     }
     return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
+  }
+
+  function buildAppendixA(docXml, sections) {
+    const a='<!--APPA_START-->', b='<!--APPA_END-->', s=docXml.indexOf(a), e=docXml.indexOf(b);
+    if(s<0||e<0) return docXml;
+    const base=docXml.slice(s+a.length,e), used=(sections||[]).filter(function(x){return x.photos&&x.photos.length;});
+    const out=used.map(function(sec,i){ let x=base.split('[[APP_A_NUM]]').join(String(i+1)); for(let n=1;n<=60;n++){ const token='@@APP_A_SLOT_'+n+'@@'; x=x.split(token).join(n<=sec.photos.length?'@@APP_A_'+(i+1)+'_'+n+'@@':''); } return x; }).join('');
+    return docXml.slice(0,s)+out+docXml.slice(e+b.length);
   }
 
   // Collapse the weather tables to what's actually used. If fewer than 2 airports are
@@ -2783,6 +2798,29 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     }).join('');
   }
 
+  // APPENDIX A: repeatable 60-photo groups. Images are held in memory and
+  // injected into the cloned Appendix A XML block during report generation.
+  const appendixASections = [{ photos: [] }];
+  const appendixAWrap = document.getElementById('appendixASections');
+  function renderAppendixA() {
+    appendixAWrap.innerHTML = appendixASections.map(function (sec, i) {
+      return '<div class="wx-result-card"><div class="wx-result-title">Appendix A-' + (i + 1) + ' <span class="hint">(' + sec.photos.length + ' / 60 photos)</span>' +
+        (i ? ' <button type="button" class="file-remove" data-appa-remove="' + i + '">Remove</button>' : '') + '</div>' +
+        '<label class="permit-drop"><input type="file" accept="image/*" multiple data-appa-input="' + i + '" style="display:none;"><span>Drop photos here, or click to add</span></label>' +
+        '<div class="wx-files">' + sec.photos.map(function (p, n) { return '<div class="wx-file-chip">' + escapeHtml(p.name) + ' <span class="wx-file-x" data-appa-photo="' + i + '" data-appa-slot="' + n + '">&times;</span></div>'; }).join('') + '</div></div>';
+    }).join('');
+    appendixAWrap.querySelectorAll('[data-appa-input]').forEach(function (el) { el.addEventListener('change', function () { addAppendixAPhotos(+el.dataset.appaInput, el.files); el.value=''; }); });
+    appendixAWrap.querySelectorAll('[data-appa-remove]').forEach(function (el) { el.addEventListener('click', function () { appendixASections.splice(+el.dataset.appaRemove,1); renderAppendixA(); }); });
+    appendixAWrap.querySelectorAll('[data-appa-slot]').forEach(function (el) { el.addEventListener('click', function () { appendixASections[+el.dataset.appaPhoto].photos.splice(+el.dataset.appaSlot,1); renderAppendixA(); }); });
+  }
+  function addAppendixAPhotos(i, files) {
+    Array.from(files || []).slice(0, Math.max(0,60-appendixASections[i].photos.length)).forEach(function(file){
+      const r=new FileReader(); r.onload=function(){ const b=new Uint8Array(r.result), u=URL.createObjectURL(file), im=new Image(); im.onload=function(){ appendixASections[i].photos.push({name:file.name,data:b,w:im.naturalWidth,h:im.naturalHeight,ext:(file.name.split('.').pop()||'png').toLowerCase().replace('jpg','jpeg')}); URL.revokeObjectURL(u); renderAppendixA(); }; im.src=u; }; r.readAsArrayBuffer(file);
+    });
+  }
+  document.getElementById('addAppendixABtn').addEventListener('click',function(){ appendixASections.push({photos:[]}); renderAppendixA(); });
+  renderAppendixA();
+
 
 
   // AI endpoint: point this at YOUR proxy (see proxy setup guide).
@@ -3531,6 +3569,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 
       // Clone + reflow the close-up section blocks based on how many images each has
       let docXml = zip.file('word/document.xml').asText();
+      docXml = buildAppendixA(docXml, appendixASections);
       docXml = buildCloseups(docXml, sectionsMeta);
       // Expand Appendix B for the permit page images (in order)
       docXml = buildPermitImages(docXml, permitPages.length);
@@ -3559,6 +3598,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       const filledBinary = doc.getZip().generate({ type: 'uint8array' });
 
       const imageMap = {};
+      appendixASections.forEach(function (sec, ai) { sec.photos.forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = p; }); });
       sectionEls.forEach(function (el, idx) {
         const sec = el.getAttribute('data-section');
         const position = idx + 1;
