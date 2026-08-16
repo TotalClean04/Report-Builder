@@ -1807,7 +1807,8 @@
     const a='<!--APPA_START-->', b='<!--APPA_END-->', s=docXml.indexOf(a), e=docXml.indexOf(b);
     if(s<0||e<0) return docXml;
     const base=docXml.slice(s+a.length,e), used=(sections||[]).map(function(x){return {photos:(x.photos||[]).filter(Boolean)}}).filter(function(x){return x.photos.length;});
-    const out=used.map(function(sec,i){ let x=base.split('[[APP_A_NUM]]').join(String(i+1)); for(let n=1;n<=60;n++){ const token='@@APP_A_SLOT_'+n+'@@'; x=x.split(token).join(n<=sec.photos.length?'@@APP_A_'+(i+1)+'_'+n+'@@':''); } return x; }).join('');
+    function xmlText(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    const out=used.map(function(sec,i){ let x=base.split('[[APP_A_NUM]]').join(String(i+1)); for(let n=1;n<=60;n++){ const token='@@APP_A_SLOT_'+n+'@@'; x=x.split(token).join(n<=sec.photos.length?'@@APP_A_'+(i+1)+'_'+n+'@@':''); x=x.split('[[APP_A_DESC_'+n+']]').join(n<=sec.photos.length?xmlText(sec.photos[n-1].description):''); } return x; }).join('');
     return docXml.slice(0,s)+out+docXml.slice(e+b.length);
   }
 
@@ -2806,10 +2807,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     appendixAWrap.innerHTML = appendixASections.map(function (sec, i) {
       return '<div class="wx-result-card"><div class="wx-result-title">Appendix A-' + (i + 1) + ' <span class="hint">(' + sec.photos.filter(Boolean).length + ' / 60 photos)</span>' +
         (i ? ' <button type="button" class="file-remove" data-appa-remove="' + i + '">Remove</button>' : '') + '</div>' +
-        '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px">' + Array.from({length:60},function(_,n){var p=sec.photos[n];return '<label class="permit-drop" style="min-height:46px;padding:5px;font-size:10px" data-appa-drop="'+i+'" data-appa-target="'+n+'"><input type="file" accept="image/*" data-appa-input="'+i+'" data-appa-target="'+n+'" style="display:none"><span>'+String(n+1).padStart(3,'0')+(p?' ✓':'')+'</span></label>';}).join('') + '</div></div>';
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' + Array.from({length:60},function(_,n){var p=sec.photos[n];return '<div><label class="permit-drop" style="min-height:90px;padding:8px;font-size:11px" data-appa-drop="'+i+'" data-appa-target="'+n+'"><input type="file" accept="image/*" data-appa-input="'+i+'" data-appa-target="'+n+'" style="display:none"><span>Photo '+String(n+1).padStart(3,'0')+(p?' ✓':'')+'</span></label><textarea data-appa-desc="'+i+'" data-appa-slot="'+n+'" placeholder="Photo '+String(n+1).padStart(3,'0')+' description" style="width:100%;margin-top:4px;min-height:42px">'+escapeHtml((p&&p.description)||'')+'</textarea></div>';}).join('') + '</div></div>';
     }).join('');
     appendixAWrap.querySelectorAll('[data-appa-input]').forEach(function (el) { el.addEventListener('change', function () { addAppendixAPhotos(+el.dataset.appaInput, el.files, +el.dataset.appaTarget); el.value=''; }); });
     appendixAWrap.querySelectorAll('[data-appa-drop]').forEach(function(el){el.addEventListener('dragover',function(e){e.preventDefault()});el.addEventListener('drop',function(e){e.preventDefault();addAppendixAPhotos(+el.dataset.appaDrop,e.dataTransfer.files,+el.dataset.appaTarget)})});
+    appendixAWrap.querySelectorAll('[data-appa-desc]').forEach(function(el){el.addEventListener('input',function(){var p=appendixASections[+el.dataset.appaDesc].photos[+el.dataset.appaSlot];if(p)p.description=el.value})});
     appendixAWrap.querySelectorAll('[data-appa-remove]').forEach(function (el) { el.addEventListener('click', function () { appendixASections.splice(+el.dataset.appaRemove,1); renderAppendixA(); }); });
     appendixAWrap.querySelectorAll('[data-appa-slot]').forEach(function (el) { el.addEventListener('click', function () { appendixASections[+el.dataset.appaPhoto].photos.splice(+el.dataset.appaSlot,1); renderAppendixA(); }); });
   }
