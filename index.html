@@ -1808,7 +1808,12 @@
     if(s<0||e<0) return docXml;
     const base=docXml.slice(s+a.length,e), used=(sections||[]).map(function(x){return {photos:(x.photos||[]).filter(Boolean)}}).filter(function(x){return x.photos.length;});
     function xmlText(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-    const out=used.map(function(sec,i){ let x=base.split('[[APP_A_NUM]]').join(String(i+1)); for(let n=1;n<=60;n++){ const token='@@APP_A_SLOT_'+n+'@@'; x=x.split(token).join(n<=sec.photos.length?'@@APP_A_'+(i+1)+'_'+n+'@@':''); x=x.split('[[APP_A_DESC_'+n+']]').join(n<=sec.photos.length?xmlText(sec.photos[n-1].description):''); } return x; }).join('');
+    const out=used.map(function(sec,i){ let x=base.split('[[APP_A_NUM]]').join(String(i+1));
+      // Remove each unused image/description cell before tokens are cleared, so
+      // the output contains no trailing empty photo boxes or caption rows.
+      x=x.replace(/<w:tc(?:\s[^>]*)?>[\s\S]*?<\/w:tc>/g,function(cell){const m=cell.match(/(?:APP_A_SLOT_|APP_A_DESC_)(\d+)/);return m&&+m[1]>sec.photos.length?'':cell;});
+      x=x.replace(/<w:tr(?:\s[^>]*)?>\s*<\/w:tr>/g,'');
+      for(let n=1;n<=60;n++){ const token='@@APP_A_SLOT_'+n+'@@'; x=x.split(token).join(n<=sec.photos.length?'@@APP_A_'+(i+1)+'_'+n+'@@':''); x=x.split('[[APP_A_DESC_'+n+']]').join(n<=sec.photos.length?xmlText(sec.photos[n-1].description):''); } return x; }).join('');
     return docXml.slice(0,s)+out+docXml.slice(e+b.length);
   }
 
@@ -3480,6 +3485,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           description: r.description || ''
         };
       });
+    // Distinguish no uploaded permit history from permit records reviewed with
+    // no roof/storm-relevant items. The template renders this as one bullet.
+    context.permit_notice = context.permits.length ? '' : ((permitPages.length || permitRows.length) ? 'No Relevant Permit Information Found' : 'No Permit Information');
 
     // File Review -> context.files (dated/photos empty => their lines drop in the template)
     context.files = fileRows.map(function (r) {
