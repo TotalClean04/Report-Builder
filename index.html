@@ -1104,6 +1104,19 @@
       </div>
 
       <div id="weatherSuggestions"></div>
+      <div id="extraWeatherPanel" class="wx-result-card" style="display:none; margin-top:12px;">
+        <div class="wx-result-title">Extra Weather Sources <span class="hint">Required when the weather warnings above are triggered. Upload the original evidence; it will be read by AI and added to Appendix C.</span></div>
+        <div class="hint" style="margin:6px 0 10px;">Use Hail Interactive for the Hail Report Data table. HailPoint is retained in Appendix C for later handling. Weather Guidance, Benchmark, and Other reports populate the existing third-party weather section.</div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
+          <label class="permit-drop"><input type="file" class="extra-wx-input" data-extra-kind="hail_interactive" accept="image/*,application/pdf" multiple style="display:none;"><span>Hail Interactive</span></label>
+          <label class="permit-drop"><input type="file" class="extra-wx-input" data-extra-kind="hailpoint" accept="image/*,application/pdf" multiple style="display:none;"><span>HailPoint</span></label>
+          <label class="permit-drop"><input type="file" class="extra-wx-input" data-extra-kind="weather_guidance" accept="image/*,application/pdf" multiple style="display:none;"><span>Weather Guidance</span></label>
+          <label class="permit-drop"><input type="file" class="extra-wx-input" data-extra-kind="benchmark" accept="image/*,application/pdf" multiple style="display:none;"><span>Benchmark / other report</span></label>
+        </div>
+        <div id="extraWeatherFiles" class="wx-files" style="margin-top:8px;"></div>
+        <div style="margin-top:10px;"><button type="button" id="extraWeatherReadBtn" class="add-btn" style="margin:0;">Read extra weather with AI</button> <span id="extraWeatherStatus" class="status"></span></div>
+        <div id="extraWeatherResults"></div>
+      </div>
       <div id="weatherResults"></div>
 
       <div class="field" style="margin-top:20px;">
@@ -1866,6 +1879,42 @@
     return docXml;
   }
 
+  // Existing report sections only: replace their marked content with AI-extracted
+  // evidence tables, or remove the existing section when there is no usable source.
+  function buildExtraWeatherSections(docXml, sources) {
+    const selected = (sources || []).filter(function (s) { return s && s.include !== false && s.recognized !== false; });
+    const esc = function (v) { return String(v == null ? '' : v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+    const cell = function (v, bold) { return '<w:tc><w:tcPr><w:tcW w:w="2300" w:type="dxa"/></w:tcPr><w:p><w:r><w:rPr>' + (bold ? '<w:b/>' : '') + '</w:rPr><w:t>' + esc(v) + '</w:t></w:r></w:p></w:tc>'; };
+    const table = function (data) {
+      data = data || {}; const headers = Array.isArray(data.headers) && data.headers.length ? data.headers.slice(0,5) : ['Date','Location','Finding'];
+      const rows = Array.isArray(data.rows) ? data.rows.slice(0,12) : [];
+      return '<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/><w:tblW w:w="0" w:type="auto"/><w:tblLook w:val="04A0" w:firstRow="1" w:lastRow="0" w:firstColumn="1" w:lastColumn="0" w:noHBand="0" w:noVBand="1"/></w:tblPr><w:tblGrid>' + headers.map(function(){return '<w:gridCol w:w="2300"/>';}).join('') + '</w:tblGrid><w:tr>' + headers.map(function(h){return cell(h,true);}).join('') + '</w:tr>' + rows.map(function(r){return '<w:tr>' + headers.map(function(_,i){return cell(Array.isArray(r) ? r[i] : (r && r[headers[i]]),false);}).join('') + '</w:tr>';}).join('') + '</w:tbl>';
+    };
+    function region(xml, start, end, replacement) { const a=xml.indexOf(start), b=xml.indexOf(end); return a < 0 || b < 0 ? xml : xml.slice(0,a) + replacement + xml.slice(b + end.length); }
+    const hail = selected.find(function (s) { return s.kind === 'hail_interactive'; });
+    docXml = region(docXml, '<!--HAILSEC_START-->', '<!--HAILSEC_END-->', hail ? (function () {
+      let base = docXml.slice(docXml.indexOf('<!--HAILSEC_START-->') + 20, docXml.indexOf('<!--HAILSEC_END-->'));
+      base = base.replace('Hail Report Data- HailPoint', 'Hail Report Data - ' + esc(hail.report_name || 'Hail Interactive'));
+      const a=base.indexOf('<!--HAIL_TABLE_START-->'), b=base.indexOf('<!--HAIL_TABLE_END-->');
+      return a < 0 || b < 0 ? base : base.slice(0,a) + table(hail.hail_table || hail.table) + base.slice(b + '<!--HAIL_TABLE_END-->'.length);
+    })() : '');
+    const third = selected.filter(function (s) { return ['weather_guidance','benchmark','other'].indexOf(s.kind) >= 0; });
+    docXml = region(docXml, '<!--THIRDPARTY_START-->', '<!--THIRDPARTY_END-->', third.length ? (function () {
+      let base = docXml.slice(docXml.indexOf('<!--THIRDPARTY_START-->') + 23, docXml.indexOf('<!--THIRDPARTY_END-->'));
+      const first = third[0];
+      base = base.replace(/>Benchmark</, '>' + esc(first.report_name || 'Weather Report') + '<');
+      // Insert before the existing page-break paragraph, never inside it.
+      const lastEnd = base.lastIndexOf('</w:p>');
+      const insertAt = lastEnd < 0 ? -1 : base.lastIndexOf('<w:p', lastEnd);
+      const blocks = third.map(function (s, i) {
+        const heading = i ? '<w:p><w:pPr><w:pStyle w:val="Heading4"/></w:pPr><w:r><w:t>' + esc(s.report_name || 'Weather Report') + '</w:t></w:r></w:p>' : '';
+        return heading + '<w:p><w:r><w:t>' + esc(s.summary || '') + '</w:t></w:r></w:p>' + table(s.table);
+      }).join('');
+      return insertAt < 0 ? base + blocks : base.slice(0, insertAt) + blocks + base.slice(insertAt);
+    })() : '');
+    return docXml;
+  }
+
   // --- Repeatable close-up sections: clone + reflow empty slots ---
   // buildCloseups(docXml, sections)
   //   sections: [{ position, filled:[b,b,b,b,b,b] }, ...] in display order
@@ -2495,6 +2544,13 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 
   // uploaded files, grouped by kind
   const weatherFiles = { stations: [], daily_summary: [], storm_event: [] };
+  const extraWeatherFiles = [];
+  let extraWeatherData = { sources: [], review_required: false, review_reason: '' };
+  const extraWeatherPanel = document.getElementById('extraWeatherPanel');
+  const extraWeatherFilesEl = document.getElementById('extraWeatherFiles');
+  const extraWeatherReadBtn = document.getElementById('extraWeatherReadBtn');
+  const extraWeatherStatus = document.getElementById('extraWeatherStatus');
+  const extraWeatherResults = document.getElementById('extraWeatherResults');
   // AI results (editable): { airports:[{name,tag,distance,days:[{...}]}], storms:[{event,county,episode,eventnarr,match}] }
   let weatherData = { airports: [], storms: [] };
 
@@ -2580,6 +2636,48 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     updateWeatherReadVisibility();
     entry.pages = await rasterizeWeatherFile(file); // fills in after upload; used only for Appendix C
   }
+
+  function renderExtraWeatherFiles() {
+    extraWeatherFilesEl.innerHTML = extraWeatherFiles.map(function (f, i) {
+      return '<div class="wx-file-chip">' + escapeHtml(f.kind.replace(/_/g, ' ')) + ': ' + escapeHtml(f.name) + ' <span class="wx-file-x" data-extra-remove="' + i + '">&times;</span></div>';
+    }).join('');
+    extraWeatherFilesEl.querySelectorAll('[data-extra-remove]').forEach(function (el) { el.addEventListener('click', function () { extraWeatherFiles.splice(+el.dataset.extraRemove, 1); renderExtraWeatherFiles(); }); });
+  }
+  async function addExtraWeatherFile(kind, file) {
+    const entry = { kind: kind, name: file.name, mime: file.type || 'image/png', dataUrl: await readAsDataURL(file), pages: [] };
+    extraWeatherFiles.push(entry); renderExtraWeatherFiles();
+    entry.pages = await rasterizeWeatherFile(file);
+  }
+  document.querySelectorAll('.extra-wx-input').forEach(function (input) {
+    input.addEventListener('change', async function () { for (const file of Array.from(input.files || [])) await addExtraWeatherFile(input.dataset.extraKind, file); input.value = ''; });
+    const drop = input.closest('.permit-drop');
+    ['dragover','dragenter'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('drag'); }); });
+    ['dragleave','drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('drag'); }); });
+    drop.addEventListener('drop', async function (e) { for (const file of Array.from(e.dataTransfer.files || [])) await addExtraWeatherFile(input.dataset.extraKind, file); });
+  });
+
+  function renderExtraWeatherResults() {
+    const sources = extraWeatherData.sources || [];
+    extraWeatherResults.innerHTML = sources.map(function (s, i) {
+      return '<div class="wx-result-card"><div class="wx-result-title"><label class="wx-check"><input type="checkbox" data-extra-inc="' + i + '"' + (s.include !== false ? ' checked' : '') + '> Include</label> ' + escapeHtml(s.report_name || s.kind || 'Extra weather report') + (s.recognized === false ? ' <span class="wx-baddate">⚠ revise code</span>' : '') + '</div><div class="hint">' + escapeHtml(s.summary || '') + '</div></div>';
+    }).join('');
+    extraWeatherResults.querySelectorAll('[data-extra-inc]').forEach(function (el) { el.addEventListener('change', function () { extraWeatherData.sources[+el.dataset.extraInc].include = el.checked; }); });
+  }
+  extraWeatherReadBtn.addEventListener('click', async function () {
+    if (!extraWeatherFiles.length) return;
+    extraWeatherReadBtn.disabled = true; extraWeatherStatus.textContent = 'Reading extra weather evidence with AI…';
+    const meta = getWeatherMeta();
+    const images = extraWeatherFiles.map(function (f) { return { kind: 'extra_' + f.kind, media_type: f.mime, data: f.dataUrl.split(',')[1] }; });
+    try {
+      const resp = await fetch(WEATHER_AI_ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.assign({images:images}, meta)) });
+      if (!resp.ok) throw new Error('Proxy returned ' + resp.status);
+      const data = await resp.json();
+      extraWeatherData = { sources:Array.isArray(data.extra_sources) ? data.extra_sources : [], review_required:!!data.extra_review_required, review_reason:data.extra_review_reason || '' };
+      if (extraWeatherData.review_required || extraWeatherData.sources.some(function(s){return s.recognized === false;})) alert('revise code');
+      renderExtraWeatherResults(); extraWeatherStatus.textContent = 'Extra weather evidence read — review the included reports below.';
+    } catch (err) { extraWeatherStatus.textContent = 'Could not read extra weather evidence (' + err.message + ').'; }
+    extraWeatherReadBtn.disabled = false;
+  });
 
   document.querySelectorAll('.wx-file-input').forEach(function (input) {
     const kind = input.dataset.kind;
@@ -2796,6 +2894,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     if (weatherData.airports.length && stormsIncluded === 0) {
       items.push('<strong>Extra weather suggested.</strong> No storm events are included &mdash; the Storm Events Database section will be removed. Consider adding extra weather data (a storm-event source or a second airport).');
     }
+    // The extra-evidence area opens only when the airport/storm review logic finds
+    // a gap. It remains available after opening so the reviewer can add documents.
+    extraWeatherPanel.style.display = items.length ? 'block' : 'none';
     weatherSuggestionsEl.innerHTML = items.map(function (t) {
       return '<div class="wx-suggest"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg><span>' + t + '</span></div>';
     }).join('');
@@ -3571,6 +3672,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     });
     const wxAppendixPages = [];
     wxAppendixFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
+    // Extra weather documents are retained as source evidence in Appendix C only
+    // when their corresponding AI result is included by the reviewer.
+    ((extraWeatherData && extraWeatherData.sources) || []).filter(function (s) { return s && s.include !== false && Number.isInteger(s.source_index) && extraWeatherFiles[s.source_index]; }).forEach(function (s) {
+      (extraWeatherFiles[s.source_index].pages || []).forEach(function (pg) { wxAppendixPages.push(pg); });
+    });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
@@ -3585,6 +3691,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       docXml = buildWeatherImages(docXml, wxAppendixPages.length);
       // Collapse weather tables to what's used: drop airport/storm Table 2 when only 1 is included
       docXml = buildWeatherTables(docXml, wxAirports.length, wxStorms.length);
+      // Populate or remove the two existing extra-weather report sections.
+      docXml = buildExtraWeatherSections(docXml, (extraWeatherData && extraWeatherData.sources) || []);
       // Technical background: keep the recognized roof section, fill DOL-1/DOL/DOL+1
       if (recognizedRoof) {
         docXml = buildTechBackground(docXml, recognizedRoof, dolDate);
