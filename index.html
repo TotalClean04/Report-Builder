@@ -1686,20 +1686,11 @@
       names.forEach(function (n) { xml = xml.split('<!--' + n + '-->').join('').split('<!--/' + n + '-->').join(''); });
       return xml;
     }
-    // remove the <w:r> run that holds a "[LABEL]" editorial bracket
-    function removeBracketRun(xml, label) {
-      const t = '<w:t>' + label + '</w:t>';
-      let i = xml.indexOf(t);
-      if (i === -1) { // may carry xml:space
-        const m = xml.match(new RegExp('<w:t[^>]*>' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '</w:t>'));
-        if (!m) return xml; i = xml.indexOf(m[0]);
-      }
-      const rs = xml.lastIndexOf('<w:r>', i);
-      const rs2 = xml.lastIndexOf('<w:r ', i);
-      const start = Math.max(rs, rs2);
-      const end = xml.indexOf('</w:r>', i);
-      if (start === -1 || end === -1) return xml;
-      return xml.slice(0, start) + xml.slice(end + 6);
+    // Clear only the editorial [TYPE] text. Its run can also contain the page
+    // break that keeps Opinions & Recommendations as its own report section.
+    function clearBracketText(xml, label) {
+      const re = new RegExp('(<w:t[^>]*>)' + label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(</w:t>)');
+      return xml.replace(re, '$1$2');
     }
     if (!roof || !has[roof]) {
       // unmatched (metal/unknown): leave blocks in place, just clear the sentinels
@@ -1713,7 +1704,7 @@
     });
     // strip the "[TYPE]" bracket from the kept block's heading
     const bracket = { shingle: '[SHINGLE]', tile: '[TILE]', flat: '[Flat WIP]' }[roof];
-    if (bracket) docXml = removeBracketRun(docXml, bracket);
+    if (bracket) docXml = clearBracketText(docXml, bracket);
     // clear the remaining sentinels
     return stripComments(docXml, ['OPSEC:shingle', 'OPSEC:tile', 'OPSEC:flat']);
   }
