@@ -2200,22 +2200,25 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 // is therefore downsampled to the resolution its report placement can actually
 // display, preserving the whole image and its aspect ratio. AI still receives
 // the original upload where it needs to read fine document text.
-function optimizeReportImage(image, maxW, maxH, quality) {
+function optimizeReportImage(image, maxW, maxH, quality, mime) {
   const sourceW = image.naturalWidth || image.width, sourceH = image.naturalHeight || image.height;
   const scale = Math.min(1, maxW / sourceW, maxH / sourceH);
   const w = Math.max(1, Math.round(sourceW * scale));
   const h = Math.max(1, Math.round(sourceH * scale));
   const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
-  // JPEG has no transparency; a white page background is right for the report.
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(image, 0, 0, w, h);
-  const dataUrl = canvas.toDataURL('image/jpeg', quality || 0.82);
+  const outputMime = mime || 'image/jpeg';
+  // Preserve clipboard and screenshot PNGs losslessly so text/linework stays as
+  // crisp as a normal Word screenshot. Photos/PDF pages use high-quality JPEG.
+  if (outputMime === 'image/jpeg') { ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); }
+  ctx.drawImage(image, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL(outputMime, quality || 0.94);
   const raw = atob(dataUrl.split(',')[1]); const data = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
-  return { data: data, dataUrl: dataUrl, w: w, h: h, ext: 'jpeg' };
+  return { data: data, dataUrl: dataUrl, w: w, h: h, ext: outputMime === 'image/png' ? 'png' : 'jpeg' };
 }
-function optimizeReportCanvas(canvas, maxW, maxH, quality) {
-  return optimizeReportImage(canvas, maxW, maxH, quality);
+function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
+  return optimizeReportImage(canvas, maxW, maxH, quality, mime);
 }
 
   // --- Close-up aerial imagery sections (repeatable) ---
@@ -2315,7 +2318,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
       img.onload = function () {
         // Aerial slots render at roughly 3 inches wide; retain enough detail for
         // print while avoiding multi-megabyte camera originals in the DOCX.
-        aerialImages[sec + '_' + n] = optimizeReportImage(img, 1400, 1050, 0.82);
+        aerialImages[sec + '_' + n] = optimizeReportImage(img, 1400, 1050, 0.94, file.type === 'image/png' ? 'image/png' : 'image/jpeg');
         let prev = slot.querySelector('.aerial-preview');
         if (!prev) { prev = document.createElement('img'); prev.className = 'aerial-preview'; slot.appendChild(prev); }
         prev.src = url;
@@ -2461,7 +2464,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
         img.onload = async function () {
           // Keep the original blob for AI timestamp reading, but embed a compact
           // report copy in Word.
-          radarImages[slot] = optimizeReportImage(img, 1600, 1200, 0.84);
+          radarImages[slot] = optimizeReportImage(img, 1600, 1200, 0.94, file.type === 'image/png' ? 'image/png' : 'image/jpeg');
           preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
             ' <span class="wx-file-x" data-slot="' + slot + '">&times;</span></div>';
           preview.querySelector('.wx-file-x').addEventListener('click', function () {
@@ -2644,7 +2647,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
         canvas.width = viewport.width; canvas.height = viewport.height;
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-        pages.push(optimizeReportCanvas(canvas, 1650, 2200, 0.84));
+        pages.push(optimizeReportCanvas(canvas, 1650, 2200, 0.94, 'image/jpeg'));
       }
       return pages;
     }
@@ -2658,7 +2661,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = function () {
-          resolve([optimizeReportImage(img, 1650, 2200, 0.84)]);
+          resolve([optimizeReportImage(img, 1650, 2200, 0.94, file.type === 'image/png' ? 'image/png' : 'image/jpeg')]);
           URL.revokeObjectURL(url);
         };
         img.onerror = function () { resolve([]); };
@@ -2960,7 +2963,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
   }
   function addAppendixAPhotos(i, files, start) {
     Array.from(files || []).slice(0,60-start).forEach(function(file,off){
-      const r=new FileReader(); r.onload=function(){ const u=URL.createObjectURL(file), im=new Image(); im.onload=function(){ appendixASections[i].photos[start+off]=Object.assign({name:file.name}, optimizeReportImage(im, 1400, 1050, 0.82)); URL.revokeObjectURL(u); renderAppendixA(); }; im.src=u; }; r.readAsArrayBuffer(file);
+      const r=new FileReader(); r.onload=function(){ const u=URL.createObjectURL(file), im=new Image(); im.onload=function(){ appendixASections[i].photos[start+off]=Object.assign({name:file.name}, optimizeReportImage(im, 1400, 1050, 0.94, file.type === 'image/png' ? 'image/png' : 'image/jpeg')); URL.revokeObjectURL(u); renderAppendixA(); }; im.src=u; }; r.readAsArrayBuffer(file);
     });
   }
   document.getElementById('addAppendixABtn').addEventListener('click',function(){ appendixASections.push({photos:[]}); renderAppendixA(); });
@@ -3020,11 +3023,11 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = function () {
-          const compact = optimizeReportImage(img, 1650, 2200, 0.84);
+          const compact = optimizeReportImage(img, 1650, 2200, 0.94, file.type === 'image/png' ? 'image/png' : 'image/jpeg');
           permitPageSeq += 1;
           permitPages.push({
             id: permitPageSeq, data: compact.data, dataUrl: compact.dataUrl,
-            mime: 'image/jpeg', ext: 'jpeg', w: compact.w, h: compact.h
+            mime: compact.ext === 'png' ? 'image/png' : 'image/jpeg', ext: compact.ext, w: compact.w, h: compact.h
           });
           URL.revokeObjectURL(url);
           resolve();
@@ -3050,11 +3053,11 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
       canvas.width = viewport.width; canvas.height = viewport.height;
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-      const compact = optimizeReportCanvas(canvas, 1650, 2200, 0.84);
+      const compact = optimizeReportCanvas(canvas, 1650, 2200, 0.94, 'image/jpeg');
       permitPageSeq += 1;
       permitPages.push({
         id: permitPageSeq, data: compact.data, dataUrl: compact.dataUrl,
-        mime: 'image/jpeg', ext: 'jpeg', w: compact.w, h: compact.h
+        mime: 'image/jpeg', ext: compact.ext, w: compact.w, h: compact.h
       });
     }
   }
@@ -3794,9 +3797,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality) {
 
       const out = injectedZip.generate({
         type: 'blob',
-        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        compression: 'DEFLATE',
-        compressionOptions: { level: 6 }
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       });
 
       // Filename: ClientName_CauseOrigin_Report.docx
