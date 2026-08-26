@@ -2100,10 +2100,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
       else { cy = boxH; cx = Math.round(boxH * aspect); }
     } else if (info.fitBox) {
-      // Contain: scale up or down while preserving the complete image. This is
-      // used by Appendix A's fixed two-column photo cells, so nothing is cropped.
+      // Appendix A uses cover mode: preserve proportions, fill every edge of the
+      // report frame, and crop only the excess from the longer dimension.
       const boxW = Math.round((info.fitBox.w || 3.1) * EMU), boxH = Math.round((info.fitBox.h || 2.15) * EMU);
-      if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
+      if (info.cover) { cx = boxW; cy = boxH; }
+      else if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
       else { cy = boxH; cx = Math.round(boxH * aspect); }
     } else {
       const wIn = info.widthIn || 2.6;
@@ -2111,6 +2112,22 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       cy = Math.round(cx / aspect);
     }
     const centerIt = !!(info.fitPage || info.center);
+
+    // OOXML source crop values are thousandths of one percent. Cropping the
+    // source, rather than stretching it, keeps people/buildings proportional.
+    let cropXml = '';
+    if (info.fitBox && info.cover) {
+      const targetAspect = (info.fitBox.w || 3.1) / (info.fitBox.h || 2.15);
+      if (aspect > targetAspect) {
+        const visible = targetAspect / aspect;
+        const crop = Math.round((1 - visible) * 50000);
+        cropXml = '<a:srcRect l="' + crop + '" r="' + crop + '" t="0" b="0"/>';
+      } else if (aspect < targetAspect) {
+        const visible = aspect / targetAspect;
+        const crop = Math.round((1 - visible) * 50000);
+        cropXml = '<a:srcRect l="0" r="0" t="' + crop + '" b="' + crop + '"/>';
+      }
+    }
 
     function makeDrawing() {
       drawingId += 1;
@@ -2129,7 +2146,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
           '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
           '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
           '<pic:nvPicPr><pic:cNvPr id="' + drawingId + '" name="Property Aerial ' + drawingId + '"/><pic:cNvPicPr/></pic:nvPicPr>' +
-          '<pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+          '<pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>' + cropXml + '<a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
           '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
           '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
           '</pic:pic></a:graphicData></a:graphic></wp:anchor></w:drawing>';
@@ -2141,7 +2158,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
         '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
         '<pic:nvPicPr><pic:cNvPr id="' + drawingId + '" name="Aerial ' + marker + ' ' + drawingId + '"/><pic:cNvPicPr/></pic:nvPicPr>' +
-        '<pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+        '<pic:blipFill><a:blip r:embed="' + rId + '" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>' + cropXml + '<a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
         '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm>' +
         '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
         '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>';
@@ -2177,6 +2194,28 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   zip.file(RELS, relsXml);
   zip.file(CT, ctXml);
   return zip;
+}
+
+// Word becomes slow when it contains camera-original images. Every report image
+// is therefore downsampled to the resolution its report placement can actually
+// display, preserving the whole image and its aspect ratio. AI still receives
+// the original upload where it needs to read fine document text.
+function optimizeReportImage(image, maxW, maxH, quality) {
+  const sourceW = image.naturalWidth || image.width, sourceH = image.naturalHeight || image.height;
+  const scale = Math.min(1, maxW / sourceW, maxH / sourceH);
+  const w = Math.max(1, Math.round(sourceW * scale));
+  const h = Math.max(1, Math.round(sourceH * scale));
+  const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  // JPEG has no transparency; a white page background is right for the report.
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(image, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL('image/jpeg', quality || 0.82);
+  const raw = atob(dataUrl.split(',')[1]); const data = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+  return { data: data, dataUrl: dataUrl, w: w, h: h, ext: 'jpeg' };
+}
+function optimizeReportCanvas(canvas, maxW, maxH, quality) {
+  return optimizeReportImage(canvas, maxW, maxH, quality);
 }
 
   // --- Close-up aerial imagery sections (repeatable) ---
@@ -2274,7 +2313,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = function () {
-        aerialImages[sec + '_' + n] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+        // Aerial slots render at roughly 3 inches wide; retain enough detail for
+        // print while avoiding multi-megabyte camera originals in the DOCX.
+        aerialImages[sec + '_' + n] = optimizeReportImage(img, 1400, 1050, 0.82);
         let prev = slot.querySelector('.aerial-preview');
         if (!prev) { prev = document.createElement('img'); prev.className = 'aerial-preview'; slot.appendChild(prev); }
         prev.src = url;
@@ -2418,7 +2459,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = async function () {
-          radarImages[slot] = { data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) };
+          // Keep the original blob for AI timestamp reading, but embed a compact
+          // report copy in Word.
+          radarImages[slot] = optimizeReportImage(img, 1600, 1200, 0.84);
           preview.innerHTML = '<div class="wx-file-chip">' + escapeHtml(file.name) +
             ' <span class="wx-file-x" data-slot="' + slot + '">&times;</span></div>';
           preview.querySelector('.wx-file-x').addEventListener('click', function () {
@@ -2601,11 +2644,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         canvas.width = viewport.width; canvas.height = viewport.height;
         const ctx = canvas.getContext('2d');
         await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-        const dataUrl = canvas.toDataURL('image/png');
-        const bin = atob(dataUrl.split(',')[1]);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        pages.push({ data: bytes, w: canvas.width, h: canvas.height, ext: 'png' });
+        pages.push(optimizeReportCanvas(canvas, 1650, 2200, 0.84));
       }
       return pages;
     }
@@ -2619,7 +2658,8 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = function () {
-          resolve([{ data: buf, w: img.naturalWidth, h: img.naturalHeight, ext: (ext === 'jpg' ? 'jpeg' : ext) }]);
+          resolve([optimizeReportImage(img, 1650, 2200, 0.84)]);
+          URL.revokeObjectURL(url);
         };
         img.onerror = function () { resolve([]); };
         img.src = url;
@@ -2920,7 +2960,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
   }
   function addAppendixAPhotos(i, files, start) {
     Array.from(files || []).slice(0,60-start).forEach(function(file,off){
-      const r=new FileReader(); r.onload=function(){ const b=new Uint8Array(r.result), u=URL.createObjectURL(file), im=new Image(); im.onload=function(){ appendixASections[i].photos[start+off]={name:file.name,data:b,w:im.naturalWidth,h:im.naturalHeight,ext:(file.name.split('.').pop()||'png').toLowerCase().replace('jpg','jpeg')}; URL.revokeObjectURL(u); renderAppendixA(); }; im.src=u; }; r.readAsArrayBuffer(file);
+      const r=new FileReader(); r.onload=function(){ const u=URL.createObjectURL(file), im=new Image(); im.onload=function(){ appendixASections[i].photos[start+off]=Object.assign({name:file.name}, optimizeReportImage(im, 1400, 1050, 0.82)); URL.revokeObjectURL(u); renderAppendixA(); }; im.src=u; }; r.readAsArrayBuffer(file);
     });
   }
   document.getElementById('addAppendixABtn').addEventListener('click',function(){ appendixASections.push({photos:[]}); renderAppendixA(); });
@@ -2980,12 +3020,13 @@ function injectImagesCore(PizZipCtor, docxData, images) {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = function () {
+          const compact = optimizeReportImage(img, 1650, 2200, 0.84);
           permitPageSeq += 1;
           permitPages.push({
-            id: permitPageSeq, data: buf, dataUrl: url,
-            mime: file.type || 'image/' + (ext === 'jpg' ? 'jpeg' : ext),
-            ext: (ext === 'jpg' ? 'jpeg' : ext), w: img.naturalWidth, h: img.naturalHeight
+            id: permitPageSeq, data: compact.data, dataUrl: compact.dataUrl,
+            mime: 'image/jpeg', ext: 'jpeg', w: compact.w, h: compact.h
           });
+          URL.revokeObjectURL(url);
           resolve();
         };
         img.src = url;
@@ -3009,14 +3050,11 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       canvas.width = viewport.width; canvas.height = viewport.height;
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/png');
-      const bin = atob(dataUrl.split(',')[1]);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const compact = optimizeReportCanvas(canvas, 1650, 2200, 0.84);
       permitPageSeq += 1;
       permitPages.push({
-        id: permitPageSeq, data: bytes, dataUrl: dataUrl,
-        mime: 'image/png', ext: 'png', w: canvas.width, h: canvas.height
+        id: permitPageSeq, data: compact.data, dataUrl: compact.dataUrl,
+        mime: 'image/jpeg', ext: 'jpeg', w: compact.w, h: compact.h
       });
     }
   }
@@ -3714,7 +3752,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       const filledBinary = doc.getZip().generate({ type: 'uint8array' });
 
       const imageMap = {};
-      appendixASections.filter(function(sec){return sec.photos.filter(Boolean).length;}).forEach(function (sec, ai) { sec.photos.filter(Boolean).forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = Object.assign({}, p, { fitBox: { w: 3.05, h: 2.15 }, center: true }); }); });
+      appendixASections.filter(function(sec){return sec.photos.filter(Boolean).length;}).forEach(function (sec, ai) { sec.photos.filter(Boolean).forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = Object.assign({}, p, { fitBox: { w: 3.05, h: 2.15 }, cover: true, center: true }); }); });
       sectionEls.forEach(function (el, idx) {
         const sec = el.getAttribute('data-section');
         const position = idx + 1;
@@ -3756,7 +3794,9 @@ function injectImagesCore(PizZipCtor, docxData, images) {
 
       const out = injectedZip.generate({
         type: 'blob',
-        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 }
       });
 
       // Filename: ClientName_CauseOrigin_Report.docx
