@@ -1115,7 +1115,7 @@
       <div id="weatherSuggestions"></div>
       <div id="extraWeatherPanel" class="wx-result-card" style="display:none; margin-top:12px;">
         <div class="wx-result-title">Extra Weather Sources <span class="hint">Required when the weather warnings above are triggered. Upload the original evidence; it will be read by AI and added to Appendix C.</span></div>
-        <div class="hint" style="margin:6px 0 10px;">Use Hail Interactive for the Hail Report Data table. HailPoint is retained in Appendix C for later handling. Weather Guidance, Benchmark, and Other reports populate the existing third-party weather section.</div>
+        <div class="hint" style="margin:6px 0 10px;">Extra-weather files are retained as screenshots in Appendix C only. They do not rewrite report sections or tables.</div>
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
           <label class="permit-drop"><input type="file" class="extra-wx-input" data-extra-kind="hail_interactive" accept="image/*,application/pdf" multiple style="display:none;"><span>Hail Interactive</span></label>
           <label class="permit-drop"><input type="file" class="extra-wx-input" data-extra-kind="hailpoint" accept="image/*,application/pdf" multiple style="display:none;"><span>HailPoint</span></label>
@@ -1833,6 +1833,15 @@
     if (observations) docXml = replaceRegion(docXml, '<!--ONSITEWRITE_START-->', '<!--ONSITEWRITE_END-->', paragraphs(observations, true));
     docXml = docXml.split('<!--OPWRITE_START-->').join('').split('<!--OPWRITE_END-->').join('').split('<!--ONSITEWRITE_START-->').join('').split('<!--ONSITEWRITE_END-->').join('');
     return docXml;
+  }
+
+  function assertValidWordXml(xml) {
+    const parsed = new DOMParser().parseFromString(xml, 'application/xml');
+    const parserError = parsed.getElementsByTagName('parsererror')[0];
+    if (parserError) {
+      const detail = (parserError.textContent || 'Unknown XML error').replace(/\s+/g, ' ').trim();
+      throw new Error('Generated report XML validation failed: ' + detail);
+    }
   }
   function addDays(d, n) { const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; }
   function fmtMDY(d) {
@@ -3815,11 +3824,9 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     });
     const wxAppendixPages = [];
     wxAppendixFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
-    // Extra weather documents are retained as source evidence in Appendix C only
-    // when their corresponding AI result is included by the reviewer.
-    ((extraWeatherData && extraWeatherData.sources) || []).filter(function (s) { return s && s.include !== false && Number.isInteger(s.source_index) && extraWeatherFiles[s.source_index]; }).forEach(function (s) {
-      (extraWeatherFiles[s.source_index].pages || []).forEach(function (pg) { wxAppendixPages.push(pg); });
-    });
+    // Extra-weather evidence is appendix-only. Keep every uploaded page in
+    // Appendix C, independent of any AI interpretation or in-report tables.
+    extraWeatherFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
@@ -3834,8 +3841,8 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
       docXml = buildWeatherImages(docXml, wxAppendixPages.length);
       // Collapse weather tables to what's used: drop airport/storm Table 2 when only 1 is included
       docXml = buildWeatherTables(docXml, wxAirports.length, wxStorms.length);
-      // Populate or remove the two existing extra-weather report sections.
-      docXml = buildExtraWeatherSections(docXml, (extraWeatherData && extraWeatherData.sources) || []);
+      // Extra-weather evidence is intentionally appendix-only; no report-section
+      // XML is rewritten from these uploads.
       // Technical background: keep the recognized roof section, fill DOL-1/DOL/DOL+1
       if (recognizedRoof) {
         docXml = buildTechBackground(docXml, recognizedRoof, dolDate);
@@ -3905,6 +3912,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
         imageMap['WX_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, fitPage: true };
       });
       const injectedZip = injectImagesCore(PizZip, filledBinary, imageMap);
+      assertValidWordXml(injectedZip.file('word/document.xml').asText());
 
       const out = injectedZip.generate({
         type: 'blob',
