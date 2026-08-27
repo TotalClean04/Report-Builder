@@ -2151,11 +2151,10 @@ function injectImagesCore(PizZipCtor, docxData, images) {
       if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
       else { cy = boxH; cx = Math.round(boxH * aspect); }
     } else if (info.fitBox) {
-      // Appendix A uses cover mode: preserve proportions, fill every edge of the
-      // report frame, and crop only the excess from the longer dimension.
+      // Appendix A uses contain mode: preserve the complete image, scale it as
+      // large as the designated frame allows, and never crop vertical photos.
       const boxW = Math.round((info.fitBox.w || 3.1) * EMU), boxH = Math.round((info.fitBox.h || 2.15) * EMU);
-      if (info.cover) { cx = boxW; cy = boxH; }
-      else if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
+      if (aspect > (boxW / boxH)) { cx = boxW; cy = Math.round(boxW / aspect); }
       else { cy = boxH; cx = Math.round(boxH * aspect); }
     } else {
       const wIn = info.widthIn || 2.6;
@@ -2164,21 +2163,7 @@ function injectImagesCore(PizZipCtor, docxData, images) {
     }
     const centerIt = !!(info.fitPage || info.center);
 
-    // OOXML source crop values are thousandths of one percent. Cropping the
-    // source, rather than stretching it, keeps people/buildings proportional.
     let cropXml = '';
-    if (info.fitBox && info.cover) {
-      const targetAspect = (info.fitBox.w || 3.1) / (info.fitBox.h || 2.15);
-      if (aspect > targetAspect) {
-        const visible = targetAspect / aspect;
-        const crop = Math.round((1 - visible) * 50000);
-        cropXml = '<a:srcRect l="' + crop + '" r="' + crop + '" t="0" b="0"/>';
-      } else if (aspect < targetAspect) {
-        const visible = aspect / targetAspect;
-        const crop = Math.round((1 - visible) * 50000);
-        cropXml = '<a:srcRect l="0" r="0" t="' + crop + '" b="' + crop + '"/>';
-      }
-    }
 
     function makeDrawing() {
       drawingId += 1;
@@ -3856,7 +3841,7 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
       const filledBinary = doc.getZip().generate({ type: 'uint8array' });
 
       const imageMap = {};
-      appendixASections.filter(function(sec){return sec.photos.filter(Boolean).length;}).forEach(function (sec, ai) { sec.photos.filter(Boolean).forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = Object.assign({}, p, { fitBox: { w: 3.05, h: 2.15 }, cover: true, center: true }); }); });
+      appendixASections.filter(function(sec){return sec.photos.filter(Boolean).length;}).forEach(function (sec, ai) { sec.photos.filter(Boolean).forEach(function (p, pi) { imageMap['APP_A_' + (ai + 1) + '_' + (pi + 1)] = Object.assign({}, p, { fitBox: { w: 3.05, h: 2.15 }, center: true }); }); });
       sectionEls.forEach(function (el, idx) {
         const sec = el.getAttribute('data-section');
         const position = idx + 1;
