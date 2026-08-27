@@ -3519,6 +3519,9 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
   const templateLoader = document.getElementById('templateLoader');
   const templateLoaderText = document.getElementById('templateLoaderText');
   let templateArrayBuffer = null;
+  // A malformed optional AI-writing merge should never prevent the rest of the
+  // report from being available. The first failure arms one explicit retry.
+  let templateOverrideArmed = false;
 
   templateInput.addEventListener('change', function () {
     const file = templateInput.files[0];
@@ -3567,6 +3570,9 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
   // --- Submit: fill the template and download the report ---
   form.addEventListener('submit', function (e) {
     e.preventDefault();
+    const useTemplateOverride = templateOverrideArmed;
+    templateOverrideArmed = false;
+    generateBtn.textContent = 'Generate Report';
 
     const formData = new FormData(form);
     const causes = formData.getAll('causeOfLoss');
@@ -3825,7 +3831,13 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
       docXml = buildOpinions(docXml, recognizedRoof);
       // When the reviewer has generated/edited drafts, overwrite only the
       // case-specific wording in the existing report sections.
-      docXml = buildGeneratedCaseWriting(docXml, recognizedRoof === 'metal' ? '' : opinionsDraftEl.value, observationsDraftEl.value);
+      if (useTemplateOverride) {
+        // Keep the normal template wording on the override pass, but remove the
+        // invisible writer markers so the standard report can render cleanly.
+        docXml = docXml.split('<!--OPWRITE_START-->').join('').split('<!--OPWRITE_END-->').join('').split('<!--ONSITEWRITE_START-->').join('').split('<!--ONSITEWRITE_END-->').join('');
+      } else {
+        docXml = buildGeneratedCaseWriting(docXml, recognizedRoof === 'metal' ? '' : opinionsDraftEl.value, observationsDraftEl.value);
+      }
       zip.file('word/document.xml', docXml);
 
       const doc = new window.docxtemplater(zip, {
@@ -3896,6 +3908,14 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
       status.classList.add('ok');
     } catch (err) {
       console.error('Template fill error:', err);
+      if (!useTemplateOverride && /multi error/i.test(String(err.message || err))) {
+        templateOverrideArmed = true;
+        generateBtn.textContent = 'Generate Report (override)';
+        status.textContent = 'Template verification found a writing-section issue. Click Generate Report (override) once to create the standard populated report.';
+        status.classList.remove('ok');
+        alert('Template verification found an optional AI-writing issue. Click “Generate Report (override)” once to generate the report without replacing the AI-written Opinions and On-Site Observations sections.');
+        return;
+      }
       status.textContent = 'Error filling template: ' + (err.message || err);
       status.classList.remove('ok');
     }
