@@ -1808,7 +1808,20 @@
         return '<w:p><w:pPr>' + (bullet ? '<w:pStyle w:val="ListParagraph"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="4"/></w:numPr>' : '<w:jc w:val="both"/>') + '<w:spacing w:after="0" w:line="240" w:lineRule="auto"/><w:rPr><w:rFonts w:ascii="Arial Narrow" w:hAnsi="Arial Narrow"/></w:rPr></w:pPr><w:r><w:rPr><w:rFonts w:ascii="Arial Narrow" w:hAnsi="Arial Narrow"/></w:rPr><w:t xml:space="preserve">' + esc(line) + '</w:t></w:r></w:p>';
       }).join('');
     }
-    function replaceRegion(xml, start, end, replacement) { const a=xml.indexOf(start), b=xml.indexOf(end,a); return a<0 || b<0 ? xml : xml.slice(0,a) + replacement + xml.slice(b + end.length); }
+    function replaceRegion(xml, start, end, replacement) {
+      const a = xml.indexOf(start), b = xml.indexOf(end, a);
+      if (a < 0 || b < 0) return xml;
+      let resume = b + end.length;
+      // Older templates placed an end marker inside a Word paragraph. Removing
+      // only that marker leaves w:pPr outside w:p and corrupts the DOCX.
+      const paragraphOpen = xml.lastIndexOf('<w:p', b);
+      const paragraphCloseBefore = xml.lastIndexOf('</w:p>', b);
+      if (paragraphOpen > paragraphCloseBefore) {
+        const paragraphClose = xml.indexOf('</w:p>', b);
+        if (paragraphClose >= 0) resume = paragraphClose + '</w:p>'.length;
+      }
+      return xml.slice(0, a) + replacement + xml.slice(resume);
+    }
     // The selected roof block is the only OPWRITE region left after buildOpinions.
     const a = docXml.indexOf('<!--OPWRITE_START-->'), b = docXml.indexOf('<!--OPWRITE_END-->', a);
     if (opinions && a >= 0 && b >= 0) {
