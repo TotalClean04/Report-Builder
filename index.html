@@ -3756,6 +3756,14 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     const stIncIdx = includedIndexes(allStorms);
     const wxAirports = apIncIdx.slice(0, 2).map(function (i) { return allAirports[i]; });
     const wxStorms = stIncIdx.slice(0, 2).map(function (i) { return allStorms[i]; });
+    const unmappedAirport = wxAirports.find(function (a) {
+      return !a || !Number.isInteger(a.source_index) || !weatherFiles.daily_summary[a.source_index];
+    });
+    if (unmappedAirport) {
+      status.textContent = 'Selected airport has no matching uploaded Daily Summary source. Review the airport data before generating the report.';
+      status.classList.remove('ok');
+      return;
+    }
     const unmappedStorm = wxStorms.find(function (s) {
       return !s || !Number.isInteger(s.source_index) || !weatherFiles.storm_event[s.source_index];
     });
@@ -3810,10 +3818,16 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     // more than one page (a multi-page PDF upload); flatten to one entry per page.
     // Only the SELECTED airports' daily summaries + SELECTED storms' events go in — nothing else.
     const wxAppendixFiles = [];
+    const selectedDailySources = new Set();
     apIncIdx.slice(0, 2).forEach(function (i) {
       const ap = allAirports[i];
-      const srcIdx = (ap && ap.source_index !== undefined && ap.source_index !== null) ? ap.source_index : i;
-      if (weatherFiles.daily_summary[srcIdx]) wxAppendixFiles.push(weatherFiles.daily_summary[srcIdx]);
+      const srcIdx = ap && ap.source_index;
+      // Use only the exact Daily Summary selected for this airport. Never fall
+      // back to the airport's ranking position, which could append another file.
+      if (Number.isInteger(srcIdx) && !selectedDailySources.has(srcIdx)) {
+        selectedDailySources.add(srcIdx);
+        wxAppendixFiles.push(weatherFiles.daily_summary[srcIdx]);
+      }
     });
     stIncIdx.slice(0, 2).forEach(function (i) {
       const s = allStorms[i];
