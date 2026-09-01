@@ -1882,9 +1882,10 @@
 
   function buildAppendixA(docXml, sections) {
     const a='<!--APPA_START-->', b='<!--APPA_END-->', s=docXml.indexOf(a), e=docXml.indexOf(b);
-    if(s<0||e<0) return docXml;
-    const base=docXml.slice(s+a.length,e), used=(sections||[]).map(function(x){return {photos:(x.photos||[]).filter(Boolean)}}).filter(function(x){return x.photos.length;});
     function xmlText(v){return String(v||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+    const used=(sections||[]).map(function(x){return {photos:(x.photos||[]).filter(Boolean)}}).filter(function(x){return x.photos.length;});
+    if(s<0||e<0) return docXml;
+    const base=docXml.slice(s+a.length,e);
     const out=used.map(function(sec,i){ let x=base.split('[[APP_A_NUM]]').join(String(i+1));
       // Remove each unused image/description cell before tokens are cleared, so
       // the output contains no trailing empty photo boxes or caption rows.
@@ -3752,8 +3753,18 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
 
     const allAirports = (weatherData && weatherData.airports) || [];
     const allStorms = (weatherData && weatherData.storms) || [];
-    const apIncIdx = includedIndexes(allAirports);   // e.g. [2, 0] — order they were checked/found in
-    const stIncIdx = includedIndexes(allStorms);
+    // At report time, the visible Include boxes are the source of truth. This
+    // prevents a Daily Summary that was unchecked in the app from surviving in
+    // Appendix C because of a stale weatherData.included value.
+    function liveIncludedIndexes(selector, list) {
+      const boxes = Array.from(weatherResultsEl.querySelectorAll(selector));
+      if (!boxes.length) return includedIndexes(list);
+      return boxes.filter(function (box) { return box.checked; }).map(function (box) {
+        return +(selector === '[data-ap-inc]' ? box.dataset.apInc : box.dataset.stormInc);
+      }).filter(function (index) { return Number.isInteger(index) && list[index]; });
+    }
+    const apIncIdx = liveIncludedIndexes('[data-ap-inc]', allAirports);   // first checked -> Table 1
+    const stIncIdx = liveIncludedIndexes('[data-storm-inc]', allStorms);
     const wxAirports = apIncIdx.slice(0, 2).map(function (i) { return allAirports[i]; });
     const wxStorms = stIncIdx.slice(0, 2).map(function (i) { return allStorms[i]; });
     const unmappedAirport = wxAirports.find(function (a) {
