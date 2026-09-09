@@ -3045,6 +3045,19 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     for (let i = 0; i < bytes.length; i += step) out += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
     return btoa(out);
   }
+  function xmlToPlainText(xml) {
+    const parsed = new DOMParser().parseFromString('<root>' + String(xml || '') + '</root>', 'application/xml');
+    return ((parsed.documentElement && parsed.documentElement.textContent) || '').replace(/\s+/g, ' ').trim();
+  }
+  function selectedOpinionTemplateText(roof) {
+    if (!templateArrayBuffer || !roof || ['shingle', 'tile', 'flat'].indexOf(roof) === -1) return '';
+    try {
+      const xml = new PizZip(templateArrayBuffer).file('word/document.xml').asText();
+      const start = '<!--OPSEC:' + roof + '-->', end = '<!--/OPSEC:' + roof + '-->';
+      const a = xml.indexOf(start), b = xml.indexOf(end, a);
+      return a >= 0 && b > a ? xmlToPlainText(xml.slice(a + start.length, b)) : '';
+    } catch (e) { return ''; }
+  }
   function renderDamageFindings() {
     const found = caseWritingData.findings || [];
     const topics = caseWritingData.technical_topics || [];
@@ -3059,19 +3072,32 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     generateCaseWritingStatus.textContent = 'Analyzing Appendix A-1 and preparing both drafts…';
     try {
       const images = primary.map(function (p) { return { photo: p.photo, media_type: p.item.ext === 'png' ? 'image/png' : 'image/jpeg', data: bytesToBase64(p.item.data), description: p.item.description || '' }; });
-      const weather = { airports: ((weatherData && weatherData.airports) || []).filter(function(a){return a.included;}).slice(0,2), storms: ((weatherData && weatherData.storms) || []).filter(function(s){return s.included;}).slice(0,2) };
+      function liveSelected(selector, source, dataName) {
+        const boxes = Array.from(document.querySelectorAll(selector));
+        const indexes = boxes.length ? boxes.filter(function (box) { return box.checked; }).map(function (box) { return +box.dataset[dataName]; }) : source.map(function (item, i) { return item && item.include !== false && item.included !== false ? i : -1; }).filter(function (i) { return i >= 0; });
+        return indexes.map(function (i) { return source[i]; }).filter(Boolean);
+      }
+      const selectedAirports = liveSelected('[data-ap-inc]', (weatherData && weatherData.airports) || [], 'apInc').slice(0, 2);
+      const selectedStorms = liveSelected('[data-storm-inc]', (weatherData && weatherData.storms) || [], 'stormInc').slice(0, 2);
+      const selectedExtraWeather = liveSelected('[data-extra-inc]', (extraWeatherData && extraWeatherData.sources) || [], 'extraInc').filter(function (s) { return s.recognized !== false; });
+      const weather = { airports: selectedAirports, storms: selectedStorms, extra_sources: selectedExtraWeather.map(function (s) { return { kind:s.kind || '', report_name:s.report_name || '', summary:s.summary || '', table:s.table || {}, hail_table:s.hail_table || {} }; }) };
+      const supporting_appendix_photo_information = appendixASections.slice(1).map(function (section, sectionIndex) {
+        return { appendix: 'Appendix A-' + (sectionIndex + 2), photos: (section.photos || []).map(function (photo, photoIndex) { return photo ? { photo:photoIndex + 1, description:photo.description || '' } : null; }).filter(Boolean) };
+      }).filter(function (section) { return section.photos.length; });
       const permits = permitRows.filter(function (p) { return p.include; }).map(function (p) { return { number:p.number || '', date:p.date || '', type:p.type || '', description:p.description || '' }; });
       const resp = await fetch(CASE_WRITING_ENDPOINT, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
         images: images, roof_type: recognizedRoof || (document.getElementById('roofCoverType') || {}).value || '',
         client_name: (document.querySelector('[name="clientName"]') || {}).value || '', address: ((document.getElementById('addressLine1') || {}).value || '') + ' ' + ((document.getElementById('addressLine2') || {}).value || ''),
         date_of_loss: (document.querySelector('[name="dateOfLoss"]') || {}).value || '', cause_of_loss: Array.from(document.querySelectorAll('[name="causeOfLoss"]:checked')).map(function(c){return c.value;}).join(', '),
-        case_description: document.getElementById('caseDescription').value || '', case_accommodations: document.getElementById('caseAccommodations').value || '', weather: weather, permits: permits
+        case_description: document.getElementById('caseDescription').value || '', case_accommodations: document.getElementById('caseAccommodations').value || '', weather: weather, permits: permits,
+        supporting_appendix_photo_information: supporting_appendix_photo_information,
+        opinion_template: selectedOpinionTemplateText(recognizedRoof)
       }) });
       if (!resp.ok) { const e = await resp.json().catch(function(){return {};}); throw new Error(e.error || ('Proxy returned ' + resp.status)); }
       const data = await resp.json();
       caseWritingData = { findings:Array.isArray(data.findings) ? data.findings : [], technical_topics:Array.isArray(data.technical_topics) ? data.technical_topics : [], opinions:data.opinions || '', observations:data.observations || '' };
       opinionsDraftEl.value = caseWritingData.opinions; observationsDraftEl.value = caseWritingData.observations; renderDamageFindings();
-      generateCaseWritingStatus.textContent = 'Drafts generated — review and edit them before creating the report.';
+      generateCaseWritingStatus.textContent = data.review_required ? ('Review required: ' + (data.review_reason || 'the supplied evidence is insufficient or unclear.')) : 'Drafts generated — review and edit them before creating the report.';
     } catch (err) { generateCaseWritingStatus.textContent = 'AI generation failed: ' + err.message; }
     generateCaseWritingBtn.disabled = false;
   });
@@ -3849,9 +3875,13 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     });
     const wxAppendixPages = [];
     wxAppendixFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
-    // Extra-weather evidence is appendix-only. Keep every uploaded page in
-    // Appendix C, independent of any AI interpretation or in-report tables.
-    extraWeatherFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
+    // Extra-weather evidence follows the same rule: Appendix C receives only
+    // sources the reviewer left checked and that the AI recognized. This keeps
+    // Appendix C, the report narrative, and the draft-generator evidence set in sync.
+    const extraBoxes = Array.from(document.querySelectorAll('[data-extra-inc]'));
+    const selectedExtraIndexes = extraBoxes.length ? extraBoxes.filter(function (box) { return box.checked; }).map(function (box) { return +box.dataset.extraInc; }) : (extraWeatherData.sources || []).map(function (source, i) { return source && source.include !== false ? i : -1; }).filter(function (i) { return i >= 0; });
+    const selectedExtraFileIndexes = new Set(selectedExtraIndexes.map(function (i) { const source = (extraWeatherData.sources || [])[i]; return source && source.recognized !== false && Number.isInteger(source.source_index) ? source.source_index : -1; }).filter(function (i) { return i >= 0; }));
+    selectedExtraFileIndexes.forEach(function (sourceIndex) { const file = extraWeatherFiles[sourceIndex]; if (file) (file.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
 
     try {
       const zip = new PizZip(templateArrayBuffer);
