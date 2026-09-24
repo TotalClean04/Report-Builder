@@ -1759,6 +1759,8 @@
     let assembled = '';
     for (let n = 1; n <= pageCount; n++) {
       assembled += base.replace('@@PERMIT_IMG_1@@', '@@PERMIT_IMG_' + n + '@@');
+      // Each uploaded permit page needs its own report page before the next image.
+      if (n < pageCount) assembled += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
     }
     return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
   }
