@@ -1758,7 +1758,12 @@
     if (pageCount <= 0) return docXml.slice(0, s) + docXml.slice(e + END.length);
     let assembled = '';
     for (let n = 1; n <= pageCount; n++) {
-      assembled += base.replace('@@PERMIT_IMG_1@@', '@@PERMIT_IMG_' + n + '@@');
+      // Do not copy Word's internal paragraph IDs. Duplicated IDs can cause Word
+      // to repair or reject the file, and can make only the first image render.
+      let page = base.replace('@@PERMIT_IMG_1@@', '@@PERMIT_IMG_' + n + '@@');
+      page = page.replace(/\s+w14:(?:paraId|textId)="[^"]*"/g, '');
+      page = page.replace(/<w:lastRenderedPageBreak\/>/g, '');
+      assembled += page;
       // Each uploaded permit page needs its own report page before the next image.
       if (n < pageCount) assembled += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
     }
@@ -1776,7 +1781,11 @@
     if (pageCount <= 0) return docXml.slice(0, s) + docXml.slice(e + END.length);
     let assembled = '';
     for (let n = 1; n <= pageCount; n++) {
-      assembled += base.replace('@@WX_IMG_1@@', '@@WX_IMG_' + n + '@@');
+      // Weather pages use the same safe-clone treatment as permit pages.
+      let page = base.replace('@@WX_IMG_1@@', '@@WX_IMG_' + n + '@@');
+      page = page.replace(/\s+w14:(?:paraId|textId)="[^"]*"/g, '');
+      page = page.replace(/<w:lastRenderedPageBreak\/>/g, '');
+      assembled += page;
     }
     return docXml.slice(0, s) + assembled + docXml.slice(e + END.length);
   }
@@ -3694,12 +3703,27 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
     });
     const wxAppendixPages = [];
     wxAppendixFiles.forEach(function (f) { (f.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
-    // Extra-weather evidence follows the same rule: Appendix C receives only
-    // sources the reviewer left checked and that the AI recognized. This keeps
-    // Appendix C, the report narrative, and the draft-generator evidence set in sync.
+    // Third-party weather evidence always belongs in Appendix C. If the AI review
+    // has been run, the reviewer can exclude a source with its Include checkbox.
+    // If it has not been run (or AI cannot classify a source), preserve the
+    // submitted original pages for review instead of silently dropping them.
     const extraBoxes = Array.from(document.querySelectorAll('[data-extra-inc]'));
-    const selectedExtraIndexes = extraBoxes.length ? extraBoxes.filter(function (box) { return box.checked; }).map(function (box) { return +box.dataset.extraInc; }) : (extraWeatherData.sources || []).map(function (source, i) { return source && source.include !== false ? i : -1; }).filter(function (i) { return i >= 0; });
-    const selectedExtraFileIndexes = new Set(selectedExtraIndexes.map(function (i) { const source = (extraWeatherData.sources || [])[i]; return source && source.recognized !== false && Number.isInteger(source.source_index) ? source.source_index : -1; }).filter(function (i) { return i >= 0; }));
+    const extraSources = Array.isArray(extraWeatherData.sources) ? extraWeatherData.sources : [];
+    const selectedExtraIndexes = extraBoxes.length
+      ? extraBoxes.filter(function (box) { return box.checked; }).map(function (box) { return +box.dataset.extraInc; })
+      : extraSources.map(function (source, i) { return source && source.include !== false ? i : -1; }).filter(function (i) { return i >= 0; });
+    const selectedExtraFileIndexes = new Set(selectedExtraIndexes.map(function (i) {
+      const source = extraSources[i];
+      // The proxy provides source_index. Keep the upload-order fallback so an
+      // unrecognized report still reaches Appendix C for human review.
+      return source && Number.isInteger(source.source_index) ? source.source_index : i;
+    }).filter(function (i) { return i >= 0 && i < extraWeatherFiles.length; }));
+    // A reviewer may generate a report before pressing "Read extra weather with
+    // AI". In that case no Include cards exist yet, so include every submitted
+    // third-party document in Appendix C by default.
+    if (!extraSources.length && !extraBoxes.length) {
+      extraWeatherFiles.forEach(function (_, i) { selectedExtraFileIndexes.add(i); });
+    }
     selectedExtraFileIndexes.forEach(function (sourceIndex) { const file = extraWeatherFiles[sourceIndex]; if (file) (file.pages || []).forEach(function (pg) { wxAppendixPages.push(pg); }); });
 
     try {
@@ -3775,7 +3799,14 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
         imageMap['WX_IMG_' + (idx + 1)] = { data: pg.data, w: pg.w, h: pg.h, ext: pg.ext, fitPage: true };
       });
       const injectedZip = injectImagesCore(PizZip, filledBinary, imageMap);
-      assertValidWordXml(injectedZip.file('word/document.xml').asText());
+      const finalDocXml = injectedZip.file('word/document.xml').asText();
+      assertValidWordXml(finalDocXml);
+      const unresolvedImages = Object.keys(imageMap).filter(function (marker) {
+        return finalDocXml.indexOf('@@' + marker + '@@') !== -1;
+      });
+      if (unresolvedImages.length) {
+        throw new Error('Report image placement failed for: ' + unresolvedImages.join(', '));
+      }
 
       const out = injectedZip.generate({
         type: 'blob',
