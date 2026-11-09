@@ -1754,16 +1754,13 @@
     const s = docXml.indexOf(START);
     const e = docXml.indexOf(END);
     if (s === -1 || e === -1) return docXml;
-    const base = docXml.slice(s + START.length, e);
     if (pageCount <= 0) return docXml.slice(0, s) + docXml.slice(e + END.length);
     let assembled = '';
     for (let n = 1; n <= pageCount; n++) {
-      // Do not copy Word's internal paragraph IDs. Duplicated IDs can cause Word
-      // to repair or reject the file, and can make only the first image render.
-      let page = base.replace('@@PERMIT_IMG_1@@', '@@PERMIT_IMG_' + n + '@@');
-      page = page.replace(/\s+w14:(?:paraId|textId)="[^"]*"/g, '');
-      page = page.replace(/<w:lastRenderedPageBreak\/>/g, '');
-      assembled += page;
+      // Generate a fresh, minimal Word paragraph for every page instead of
+      // cloning the template paragraph and its Word-internal IDs. This prevents
+      // Word from collapsing later permit pages or treating the DOCX as damaged.
+      assembled += '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t>@@PERMIT_IMG_' + n + '@@</w:t></w:r></w:p>';
       // Each uploaded permit page needs its own report page before the next image.
       if (n < pageCount) assembled += '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
     }
@@ -3806,6 +3803,10 @@ function optimizeReportCanvas(canvas, maxW, maxH, quality, mime) {
       });
       if (unresolvedImages.length) {
         throw new Error('Report image placement failed for: ' + unresolvedImages.join(', '));
+      }
+      const permitDrawings = (finalDocXml.match(/<wp:docPr[^>]*\bname="Aerial PERMIT_IMG_\d+ \d+"/g) || []).length;
+      if (permitDrawings !== permitPages.length) {
+        throw new Error('Appendix B page check failed: expected ' + permitPages.length + ' permit page(s), found ' + permitDrawings + '.');
       }
 
       const out = injectedZip.generate({
